@@ -1,0 +1,923 @@
+import re
+import html
+import textwrap
+
+import streamlit as st
+
+from app.controller import RetailAssistController
+from rag.service import RAGResponse
+
+
+# ============================================================
+# Answer cleanup
+# ============================================================
+
+
+def clean_answer(
+    answer: str,
+    question: str,
+) -> str:
+    """
+    Clean unnecessary repetition from the generated answer.
+    """
+
+    if not answer:
+        return ""
+
+    answer = answer.strip()
+    question = question.strip()
+
+    if not question:
+        return answer
+
+    normalized_answer = re.sub(
+        r"\s+",
+        " ",
+        answer,
+    ).strip()
+
+    normalized_question = re.sub(
+        r"\s+",
+        " ",
+        question,
+    ).strip()
+
+    # Remove phrases that should never be shown to the user.
+    unwanted_prefixes = [
+        r"^based on the provided policy evidence[:,]?\s*",
+        r"^based on the policy evidence[:,]?\s*",
+        r"^according to the evidence[:,]?\s*",
+        r"^according to the provided evidence[:,]?\s*",
+        r"^according to the policy evidence[:,]?\s*",
+        r"^the evidence shows[:,]?\s*",
+        r"^the policy evidence shows[:,]?\s*",
+        r"^answer[:,]?\s*",
+        r"^final answer[:,]?\s*",
+    ]
+
+    for pattern in unwanted_prefixes:
+        normalized_answer = re.sub(
+            pattern,
+            "",
+            normalized_answer,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    # Remove "The customer's question is..."
+    normalized_answer = re.sub(
+        r"^the customer's question is\s*[:\-]?\s*.*?"
+        r"(?:\.\s+|:\s+)",
+        "",
+        normalized_answer,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    # Remove exact question repetition.
+    if normalized_answer.lower().startswith(normalized_question.lower()):
+        cleaned = normalized_answer[len(normalized_question) :].strip()
+
+        cleaned = re.sub(
+            r"^[\s:,;\-–—]+",
+            "",
+            cleaned,
+        ).strip()
+
+        if cleaned:
+            normalized_answer = cleaned
+
+    # Remove "Question: <question>"
+    question_prefix_pattern = (
+        rf"^(?:question|user question|your question)"
+        rf"\s*[:\-–—]\s*"
+        rf"{re.escape(normalized_question)}"
+        rf"\s*"
+    )
+
+    normalized_answer = re.sub(
+        question_prefix_pattern,
+        "",
+        normalized_answer,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    return normalized_answer
+
+
+# ============================================================
+# Source extraction
+# ============================================================
+
+
+def split_source_text(text: str):
+    """
+    Split a single FAQ chunk into:
+
+        question
+        answer
+
+    Example:
+
+        ## Where will my refund be sent?
+
+        Refunds are sent to the original payment method...
+
+    becomes:
+
+        question = "Where will my refund be sent?"
+        answer = "Refunds are sent..."
+    """
+
+    if not text:
+        return "", ""
+
+    text = text.strip()
+
+    lines = text.splitlines()
+
+    if not lines:
+        return "", ""
+
+    first_line = lines[0].strip()
+
+    heading_match = re.match(
+        r"^#{1,6}\s+(.+?)\s*$",
+        first_line,
+    )
+
+    if heading_match:
+        source_question = heading_match.group(1).strip()
+
+        remaining_text = "\n".join(lines[1:]).strip()
+
+        return (
+            source_question,
+            remaining_text,
+        )
+
+    return "", text
+
+
+# ============================================================
+# Extract relevant FAQ section
+# ============================================================
+
+
+def extract_relevant_section(
+    question: str,
+    chunk_text: str,
+) -> tuple[str, str]:
+    """
+    Extract exactly one FAQ entry from a retrieved chunk.
+
+    The retrieval/RAG pipeline is unchanged. This function only controls
+    which already-retrieved FAQ section is displayed in the UI.
+    """
+
+    if not chunk_text or not chunk_text.strip():
+        return "", ""
+
+    text = chunk_text.strip()
+
+    # Find Markdown FAQ headings and preserve the text until the next heading.
+    heading_pattern = re.compile(r"(?m)^\s*#{1,6}\s+(.+?)\s*$")
+    matches = list(heading_pattern.finditer(text))
+
+    if not matches:
+        return "", text
+
+    stop_words = {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "my",
+        "me",
+        "i",
+        "we",
+        "you",
+        "your",
+        "our",
+        "to",
+        "for",
+        "of",
+        "on",
+        "in",
+        "at",
+        "and",
+        "or",
+        "but",
+        "what",
+        "where",
+        "when",
+        "how",
+        "why",
+        "can",
+        "could",
+        "would",
+        "will",
+        "do",
+        "does",
+        "did",
+        "it",
+        "this",
+        "that",
+        "please",
+        "tell",
+    }
+
+    important_terms = {
+        "refund",
+        "return",
+        "returned",
+        "exchange",
+        "replace",
+        "shipping",
+        "delivery",
+        "delivered",
+        "warranty",
+        "damage",
+        "damaged",
+        "broken",
+        "cracked",
+        "defective",
+        "card",
+        "payment",
+        "declined",
+        "pending",
+        "charge",
+        "tracking",
+        "lost",
+        "late",
+    }
+
+    def tokenize(value: str) -> set[str]:
+        words = re.findall(r"[a-z0-9]+", value.lower())
+        return {word for word in words if word not in stop_words and len(word) > 2}
+
+    question_words = tokenize(question)
+
+    best_question = ""
+    best_answer = ""
+    best_score = -1
+
+    for index, match in enumerate(matches):
+        source_question = match.group(1).strip()
+        section_start = match.end()
+        section_end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        )
+
+        source_answer = text[section_start:section_end].strip()
+
+        # Ignore empty headings.
+        if not source_question or not source_answer:
+            continue
+
+        section_words = tokenize(source_question + " " + source_answer)
+        overlap = question_words.intersection(section_words)
+
+        score = len(overlap)
+        score += len(overlap.intersection(important_terms)) * 2
+
+        # Strongly prefer a heading whose wording directly matches the
+        # customer's question.
+        question_lower = question.strip().lower()
+        heading_lower = source_question.lower()
+        if heading_lower == question_lower:
+            score += 20
+        elif question_lower and heading_lower in question_lower:
+            score += 8
+
+        if score > best_score:
+            best_score = score
+            best_question = source_question
+            best_answer = source_answer
+
+    if best_question:
+        return best_question, best_answer
+
+    # Fallback: return the first actual FAQ entry.
+    first = matches[0]
+    first_end = matches[1].start() if len(matches) > 1 else len(text)
+    return (
+        first.group(1).strip(),
+        text[first.end() : first_end].strip(),
+    )
+
+
+# ============================================================
+# UI styling
+# ============================================================
+
+
+def inject_box_styles() -> None:
+    """
+    Inject professional, industry-style CSS for the RetailAssist interface.
+    This function changes presentation only; application logic is unchanged.
+    """
+
+    st.markdown(
+        textwrap.dedent(
+            """
+            <style>
+
+            /* =========================================================
+               Global layout
+               ========================================================= */
+
+            .stApp {
+                background:
+                    radial-gradient(circle at 8% 8%, rgba(99, 102, 241, 0.14), transparent 28%),
+                    radial-gradient(circle at 92% 18%, rgba(14, 165, 233, 0.12), transparent 30%),
+                    radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.08), transparent 34%),
+                    linear-gradient(135deg, #eef4ff 0%, #f7f5ff 48%, #edf7fb 100%);
+                min-height: 100vh;
+            }
+
+            .main .block-container {
+                position: relative;
+            }
+
+            .main .block-container::before {
+                content: "";
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                background-image:
+                    radial-gradient(rgba(99, 102, 241, 0.10) 1px, transparent 1px);
+                background-size: 28px 28px;
+                mask-image: linear-gradient(to bottom, rgba(0,0,0,0.32), transparent 48%);
+                z-index: 0;
+            }
+
+            .block-container {
+                max-width: 1180px;
+                padding-top: 4.6rem;
+                padding-bottom: 3rem;
+            }
+
+            /* Hide Streamlit chrome that is not useful for the product UI */
+            #MainMenu {
+                visibility: hidden;
+            }
+
+            footer {
+                visibility: hidden;
+            }
+
+            /* =========================================================
+               Hero / brand
+               ========================================================= */
+
+            .ra-hero {
+                position: relative;
+                overflow: hidden;
+                padding: 30px 34px 78px;
+                border-radius: 22px;
+                margin-bottom: 24px;
+                background:
+                    linear-gradient(135deg, #0f172a 0%, #1e293b 58%, #312e81 100%);
+                box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+                color: white;
+            }
+
+            .ra-hero::after {
+                content: "";
+                position: absolute;
+                width: 260px;
+                height: 260px;
+                right: -80px;
+                top: -120px;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.08);
+            }
+
+            .ra-brand-row {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                position: relative;
+                z-index: 1;
+            }
+
+            .ra-brand-icon {
+                width: 52px;
+                height: 52px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 15px;
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                font-size: 28px;
+            }
+
+            .ra-brand-title {
+                font-size: 2rem;
+                line-height: 1.1;
+                font-weight: 800;
+                letter-spacing: -0.03em;
+                margin: 0;
+                color: #ffffff !important;
+                -webkit-text-fill-color: #ffffff !important;
+            }
+
+            .ra-brand-subtitle {
+                margin: 7px 0 0;
+                color: #cbd5e1;
+                font-size: 0.98rem;
+            }
+
+            .ra-status-row,
+            .ra-status-strip {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 9px;
+                position: absolute;
+                left: 34px;
+                bottom: 18px;
+                z-index: 3;
+                pointer-events: none;
+            }
+
+            .ra-status {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                padding: 7px 13px;
+                border-radius: 999px;
+                font-size: 0.76rem;
+                font-weight: 700;
+                color: #f8fafc !important;
+                background: rgba(15, 23, 42, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.28);
+                box-shadow:
+                    0 8px 18px rgba(15, 23, 42, 0.18),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                white-space: nowrap;
+            }
+
+            .ra-status-dot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background: #22c55e;
+                box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+            }
+
+            /* =========================================================
+               Section labels
+               ========================================================= */
+
+            .ra-section-label {
+                font-size: 0.76rem;
+                font-weight: 750;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #64748b;
+                margin: 22px 0 9px;
+            }
+
+            .ra-section-title {
+                font-size: 1.12rem;
+                font-weight: 750;
+                color: #0f172a;
+                margin: 0 0 10px;
+            }
+
+            /* =========================================================
+               Input area
+               ========================================================= */
+
+            .ra-helper {
+                color: #64748b;
+                font-size: 0.86rem;
+                line-height: 1.5;
+                margin: 2px 0 12px;
+            }
+
+            div[data-testid="stTextArea"] {
+                background: rgba(255, 255, 255, 0.96);
+                border: 1px solid #d8e0ea;
+                border-radius: 18px;
+                padding: 9px;
+                box-shadow: 0 7px 24px rgba(15, 23, 42, 0.045);
+            }
+
+            textarea {
+                border-radius: 13px !important;
+                border: 1px solid #cbd5e1 !important;
+                background: #f8fafc !important;
+                color: #0f172a !important;
+                font-size: 0.98rem !important;
+                line-height: 1.55 !important;
+            }
+
+            textarea:focus {
+                border-color: #6366f1 !important;
+                box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.10) !important;
+            }
+
+            div[data-testid="stTextArea"] label {
+                font-weight: 650;
+                color: #334155;
+            }
+
+            /* Buttons */
+            .stButton > button {
+                min-height: 46px;
+                border-radius: 11px;
+                font-weight: 700;
+                border: 1px solid #cbd5e1;
+                transition: all 0.15s ease;
+            }
+
+            .stButton > button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 7px 18px rgba(15, 23, 42, 0.10);
+            }
+
+            .stButton > button[kind="primary"] {
+                border: none !important;
+                background: linear-gradient(135deg, #4f46e5, #6366f1) !important;
+                box-shadow: 0 8px 18px rgba(79, 70, 229, 0.22);
+            }
+
+            .stButton > button[kind="primary"]:hover {
+                background: linear-gradient(135deg, #4338ca, #4f46e5) !important;
+            }
+
+            /* =========================================================
+               Answer
+               ========================================================= */
+
+            .ra-answer-box {
+                border-radius: 17px;
+                padding: 22px 24px;
+                margin: 5px 0 22px;
+                background:
+                    linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+                border: 1px solid #c7d2fe;
+                color: #1e293b;
+                font-size: 1.03rem;
+                line-height: 1.75;
+                box-shadow: 0 8px 25px rgba(79, 70, 229, 0.07);
+            }
+
+            .ra-answer-label {
+                display: flex;
+                align-items: center;
+                gap: 9px;
+                font-size: 0.76rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                font-weight: 800;
+                color: #4f46e5;
+                margin-bottom: 9px;
+            }
+
+            /* =========================================================
+               Sources
+               ========================================================= */
+
+            .ra-source-box {
+                border-radius: 16px;
+                padding: 20px 22px;
+                margin-bottom: 13px;
+                background: rgba(255, 255, 255, 0.96);
+                border: 1px solid #dbe3ee;
+                box-shadow: 0 6px 20px rgba(15, 23, 42, 0.045);
+                transition: box-shadow 0.15s ease, transform 0.15s ease;
+            }
+
+            .ra-source-box:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+                border-color: #c7d2fe;
+            }
+
+            .ra-source-top {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 8px;
+            }
+
+            .ra-source-number {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 28px;
+                height: 28px;
+                padding: 0 8px;
+                border-radius: 8px;
+                background: #eef2ff;
+                color: #4338ca;
+                font-size: 0.75rem;
+                font-weight: 800;
+            }
+
+            .ra-source-title {
+                flex: 1;
+                font-weight: 800;
+                font-size: 1rem;
+                color: #1e293b;
+            }
+
+            .ra-source-meta {
+                color: #64748b;
+                font-size: 0.76rem;
+                margin: 8px 0 14px;
+            }
+
+            .ra-source-meta code {
+                background: #f1f5f9;
+                color: #475569;
+                padding: 3px 7px;
+                border-radius: 6px;
+                border: 1px solid #e2e8f0;
+            }
+
+            .ra-source-question {
+                font-weight: 750;
+                font-size: 1rem;
+                line-height: 1.5;
+                margin: 4px 0 9px;
+                color: #334155;
+            }
+
+            .ra-answer-text {
+                color: #233047;
+                font-size: 1.02rem;
+                line-height: 1.72;
+            }
+
+            .ra-source-text {
+                color: #64748b;
+                line-height: 1.7;
+                font-size: 0.92rem;
+            }
+
+            /* =========================================================
+               Footer
+               ========================================================= */
+
+            .ra-footer {
+                margin-top: 34px;
+                padding-top: 18px;
+                border-top: 1px solid #e2e8f0;
+                text-align: center;
+                color: #94a3b8;
+                font-size: 0.76rem;
+            }
+
+            /* =========================================================
+               Responsive
+               ========================================================= */
+
+            @media (max-width: 768px) {
+                .block-container {
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                    padding-top: 1.2rem;
+                }
+
+                .ra-hero {
+                    padding: 24px 20px 76px;
+                    border-radius: 18px;
+                }
+
+                .ra-status-row,
+                .ra-status-strip {
+                    left: 20px;
+                    bottom: 18px;
+                }
+
+                .ra-brand-title {
+                    font-size: 1.55rem;
+                }
+
+                .ra-helper {
+                    font-size: 0.82rem;
+                }
+
+                .ra-answer-box,
+                .ra-source-box {
+                    padding: 17px 16px;
+                }
+            }
+
+            </style>
+            """
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def render_response(
+    response: RAGResponse,
+    question: str,
+) -> None:
+    """
+    Render the final answer and one relevant FAQ section per retrieved source.
+    No retrieval or generation behavior is changed here.
+    """
+
+    # ---------------------------------------------------------
+    # Answer
+    # ---------------------------------------------------------
+
+    st.markdown(
+        '<div class="ra-section-label">Response</div>'
+        '<div class="ra-section-title">Answer</div>',
+        unsafe_allow_html=True,
+    )
+
+    answer = clean_answer(response.answer, question)
+    if not answer:
+        answer = "I couldn't find a policy that answers that question."
+
+    answer_html = (
+        '<div class="ra-answer-box">'
+        '<div class="ra-answer-label">POLICY-GROUNDED RESPONSE</div>'
+        f'<div class="ra-answer-text">{html.escape(answer)}</div>'
+        "</div>"
+    )
+    st.markdown(answer_html, unsafe_allow_html=True)
+
+    if not response.evidence:
+        return
+
+    # ---------------------------------------------------------
+    # Sources
+    # ---------------------------------------------------------
+
+    st.markdown(
+        '<div class="ra-section-label">Evidence</div>'
+        '<div class="ra-section-title">Supporting sources</div>',
+        unsafe_allow_html=True,
+    )
+
+    shown_sources = set()
+
+    for source_number, chunk in enumerate(response.evidence, start=1):
+        source_question, source_text = extract_relevant_section(
+            question,
+            chunk.chunk_text,
+        )
+
+        source_key = (
+            str(chunk.document_id),
+            str(chunk.chunk_index),
+            source_question.strip().lower(),
+        )
+
+        if source_key in shown_sources:
+            continue
+
+        shown_sources.add(source_key)
+
+        document_name = html.escape(str(chunk.document_name))
+        category = html.escape(str(chunk.category))
+        chunk_index = html.escape(str(chunk.chunk_index))
+        safe_question = html.escape(source_question)
+        safe_text = html.escape(source_text).replace("\n", "<br>")
+
+        source_html = (
+            '<div class="ra-source-box">'
+            '<div class="ra-source-top">'
+            f'<span class="ra-source-number">SOURCE {source_number}</span>'
+            f'<div class="ra-source-title">{document_name}</div>'
+            "</div>"
+            '<div class="ra-source-meta">'
+            f"Category <code>{category}</code>"
+            f'<span style="margin-left:10px;">Chunk <code>{chunk_index}</code></span>'
+            "</div>"
+            f'<div class="ra-source-question">{safe_question}</div>'
+            f'<div class="ra-source-text">{safe_text}</div>'
+            "</div>"
+        )
+
+        st.markdown(source_html, unsafe_allow_html=True)
+
+
+def run_app(
+    controller: RetailAssistController,
+) -> None:
+    """Render the RetailAssist Streamlit application."""
+
+    st.set_page_config(
+        page_title="RetailAssist | FAQ Assistant",
+        page_icon="🛍️",
+        layout="centered",
+        initial_sidebar_state="collapsed",
+    )
+
+    inject_box_styles()
+
+    # ---------------------------------------------------------
+    # Product hero
+    # ---------------------------------------------------------
+
+    # Hero content only. Keep the status strip in a separate Streamlit
+    # element so Markdown never interprets the inner status markup as code.
+    st.markdown(
+        """
+        <div class="ra-hero">
+            <div class="ra-brand-row">
+                <div class="ra-brand-icon">🛍️</div>
+                <div>
+                    <div class="ra-brand-title">RetailAssist FAQ Assistant</div>
+                    <div class="ra-brand-subtitle">
+                        Grounded customer-support intelligence for retail policies.
+                        Ask a question and receive a concise answer backed by approved FAQ evidence.
+                    </div>
+                </div>
+            </div><div class="ra-status-strip">
+                <span class="ra-status">
+                    <span class="ra-status-dot"></span>
+                    Policy-grounded
+                </span>
+                <span class="ra-status">Snowflake Cortex</span>
+                <span class="ra-status">FAQ Knowledge Base</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ---------------------------------------------------------
+    # Question area
+    # ---------------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Customer support</div>
+        <div class="ra-section-title">Ask your policy question</div>
+        <div class="ra-helper">
+            Returns · Refunds · Shipping · Warranty · Payments
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    question = st.text_area(
+        "Question",
+        placeholder="Example: Does the warranty cover accidental damage?",
+        height=118,
+        label_visibility="collapsed",
+    )
+
+    st.markdown(
+        '<div style="height:6px;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns([3.15, 1])
+
+    with col1:
+        ask_clicked = st.button(
+            "🔎  Ask RetailAssist",
+            type="primary",
+            use_container_width=True,
+        )
+
+    with col2:
+        clear_clicked = st.button(
+            "↺  Clear",
+            use_container_width=True,
+        )
+
+    if clear_clicked:
+        st.rerun()
+
+    if ask_clicked:
+        if not question.strip():
+            st.warning("Please enter a question.")
+            return
+
+        with st.spinner("Retrieving policy evidence and preparing response..."):
+            response = controller.ask(question.strip())
+
+        render_response(
+            response,
+            question,
+        )
+
+    st.markdown(
+        """
+        <div class="ra-footer">
+            RetailAssist • Grounded answers from approved policy evidence
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
