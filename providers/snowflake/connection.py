@@ -3,22 +3,22 @@ import os
 from dotenv import load_dotenv
 from snowflake.snowpark import Session
 
-
 # Load variables from .env
 load_dotenv()
 
 
 def create_snowflake_session() -> Session:
     """
-    Create a Snowpark session from environment variables.
+    Create a Snowpark session using a Snowflake
+    Programmatic Access Token (PAT).
 
-    Real credentials must never be hard-coded in source code.
+    The PAT must never be hard-coded in source code.
     """
 
     required_variables = [
         "SNOWFLAKE_ACCOUNT",
         "SNOWFLAKE_USER",
-        "SNOWFLAKE_PASSWORD",
+        "SNOWFLAKE_PAT",
         "SNOWFLAKE_WAREHOUSE",
         "SNOWFLAKE_DATABASE",
         "SNOWFLAKE_SCHEMA",
@@ -36,7 +36,8 @@ def create_snowflake_session() -> Session:
     connection_parameters = {
         "account": os.environ["SNOWFLAKE_ACCOUNT"],
         "user": os.environ["SNOWFLAKE_USER"],
-        "password": os.environ["SNOWFLAKE_PASSWORD"],
+        "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
+        "token": os.environ["SNOWFLAKE_PAT"],
         "warehouse": os.environ["SNOWFLAKE_WAREHOUSE"],
         "database": os.environ["SNOWFLAKE_DATABASE"],
         "schema": os.environ["SNOWFLAKE_SCHEMA"],
