@@ -1,642 +1,447 @@
 # RetailAssist FAQ Assistant
 
-An industry-style Retrieval-Augmented Generation (RAG) customer-support assistant built with **Snowflake Cortex Search**, **Snowflake Cortex Complete**, **Snowpark**, and **Streamlit**.
+A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, retrieval-augmented generation (RAG), and Snowflake Cortex Search.
 
-RetailAssist answers customer FAQ questions from a controlled retail-policy knowledge base. The application retrieves relevant policy chunks from Snowflake Cortex Search and passes only the accepted evidence to a Cortex language model for grounded response generation.
+The project has been extended with **dynamic document upload and Snowflake-backed knowledge management**, allowing new PDF, DOCX, TXT, and Markdown documents to be uploaded from the Streamlit UI, categorized, stored in Snowflake, chunked for retrieval, and used as policy evidence without changing application code.
 
----
+## Key Features
 
-## 1. Project Overview
+- Policy-grounded customer-support answers
+- Retrieval-Augmented Generation (RAG)
+- Snowflake document storage
+- Snowflake Cortex Search integration
+- Snowflake Cortex generation support
+- Dynamic document upload from the Streamlit UI
+- PDF, DOCX, TXT, and Markdown document support
+- Automatic document category detection
+- Document metadata and chunk tracking
+- Duplicate document handling
+- Relevant evidence/source display in the UI
+- Provider-neutral RAG architecture
+- Local/demo mode for development and testing
+- Automated tests and manual FAQ validation
 
-RetailAssist is designed to demonstrate a production-oriented RAG workflow:
+## Architecture
 
 ```text
-Customer Question
-       |
-       v
-Streamlit UI
-       |
-       v
-RAG Service
-       |
-       +--------------------+
-       |                    |
-       v                    v
-Cortex Search         Grounded Prompt
-       |                    |
-       v                    v
-Policy Chunks ------> Cortex Complete
-       |                    |
-       +---------+----------+
-                 |
-                 v
-        Answer + Sources
+                         ┌──────────────────────┐
+                         │     Streamlit UI     │
+                         │  Ask / Upload Docs   │
+                         └──────────┬───────────┘
+                                    │
+                         ┌──────────▼───────────┐
+                         │      Controller      │
+                         └──────────┬───────────┘
+                                    │
+                         ┌──────────▼───────────┐
+                         │      RAGService      │
+                         └──────────┬───────────┘
+                                    │
+                   ┌────────────────┴────────────────┐
+                   │                                 │
+          ┌────────▼────────┐               ┌────────▼────────┐
+          │    Retriever    │               │    Generator    │
+          │    Contract     │               │    Contract     │
+          └────────┬────────┘               └────────┬────────┘
+                   │                                 │
+          ┌────────▼────────┐               ┌────────▼────────┐
+          │ Snowflake       │               │ Snowflake       │
+          │ Retriever       │               │ Cortex          │
+          └────────┬────────┘               │ Generator       │
+                   │                        └─────────────────┘
+          ┌────────▼────────┐
+          │ Cortex Search   │
+          └────────┬────────┘
+                   │
+          ┌────────▼────────┐
+          │ Policy Chunks   │
+          └─────────────────┘
+
+Document Upload Flow
+
+User Upload
+    ↓
+PDF / DOCX / TXT / MD
+    ↓
+Document Validation
+    ↓
+Category Detection
+    ↓
+Duplicate Check
+    ↓
+Snowflake Document Storage
+    ↓
+Chunk Ingestion
+    ↓
+Cortex Search
+    ↓
+Available as RAG Evidence
 ```
 
-The system is intentionally designed so that the generated answer is based on retrieved policy evidence rather than general model knowledge.
-
----
-
-## 2. Key Features
-
-- Snowflake Cortex Search for semantic policy retrieval
-- Snowflake Cortex Complete for grounded answer generation
-- Chunk-based policy knowledge base
-- Category-aware retrieval for:
-  - Returns
-  - Refunds
-  - Shipping
-  - Warranty
-  - Payments
-- Evidence filtering before generation
-- Unsupported-question refusal behavior
-- Source/chunk visibility in the Streamlit UI
-- Provider-neutral RAG architecture
-- Separate Demo and Snowflake provider modes
-- Environment-variable based Snowflake configuration
-- No credentials hard-coded in application source code
-- Temperature set to `0` for deterministic generation behavior
-- Concise customer-support responses
-
----
-
-## 3. Technology Stack
-
-| Layer | Technology |
-|---|---|
-| UI | Streamlit |
-| Language | Python 3.11+ |
-| RAG | Custom Python RAG service |
-| Retrieval | Snowflake Cortex Search |
-| Generation | Snowflake Cortex Complete |
-| Database | Snowflake |
-| Snowflake API | Snowpark Python |
-| Configuration | `.env` |
-| Architecture | Provider-neutral RAG |
-
----
-
-## 4. Project Structure
+## Project Structure
 
 ```text
 RetailAssist FAQ Assistant/
 │
 ├── app/
-│   ├── main.py
-│   ├── demo_main.py
 │   ├── controller.py
-│   ├── ui.py
-│   └── demo_providers.py
+│   ├── demo_main.py
+│   ├── demo_providers.py
+│   ├── main.py
+│   └── ui.py
+│
+├── data/
+│   ├── payments_faq.md
+│   ├── refunds_faq.md
+│   ├── returns_faq.md
+│   ├── shipping_faq.md
+│   ├── warranty_faq.md
+│   └── evaluation_questions.csv
+│
+├── providers/
+│   └── snowflake/
+│       ├── connection.py
+│       ├── document_store.py
+│       ├── generator.py
+│       └── retriever.py
 │
 ├── rag/
 │   ├── contracts.py
 │   ├── prompts.py
 │   └── service.py
 │
-├── providers/
-│   └── snowflake/
-│       ├── connection.py
-│       ├── retriever.py
-│       └── generator.py
+├── scripts/
+│   └── generate_seed.py
 │
 ├── sql/
-│   └── search.sql
+│   ├── foundation.sql
+│   ├── 02_seed.sql
+│   ├── chunking.sql
+│   ├── documents.sql
+│   ├── search.sql
+│   └── validation.sql
 │
-├── data/
-│   └── policy files / source documents
+├── tests/
+│   ├── test_contracts.py
+│   ├── test_evaluation.py
+│   ├── test_import_boundary.py
+│   ├── test_provider_selection.py
+│   ├── test_rag_service.py
+│   ├── test_snowflake_connection.py
+│   ├── test_snowflake_data.py
+│   ├── test_snowflake_generator.py
+│   └── test_snowflake_retriever.py
 │
-├── .env
+├── .env.example
 ├── .gitignore
-└── README.md
+├── README.md
+├── requirements.txt
+└── ...
 ```
 
-File names may vary slightly depending on the final project directory.
+## Supported Document Formats
 
----
+The dynamic upload feature accepts:
 
-## 5. RAG Architecture
+| Format | Supported |
+|---|---|
+| Markdown (`.md`) | Yes |
+| PDF (`.pdf`) | Yes |
+| DOCX (`.docx`) | Yes |
+| TXT (`.txt`) | Yes |
 
-### Step 1 — User Question
+Uploaded documents are processed through the same knowledge pipeline and become available as retrieval evidence after ingestion.
 
-The customer enters a question in the Streamlit interface.
+## Dynamic Document Upload
 
-Example:
+The Streamlit knowledge-base section allows an authorized user to upload new policy documents without modifying the source code.
+
+The upload pipeline performs:
+
+1. File type validation
+2. Document text extraction
+3. Category detection
+4. Duplicate document handling
+5. Snowflake document storage
+6. Policy chunk ingestion
+7. Retrieval availability through Cortex Search
+
+The existing application architecture remains provider-neutral; document persistence is isolated in the Snowflake provider layer.
+
+## Knowledge Base
+
+The original policy corpus contains five FAQ categories:
 
 ```text
-My device was dropped and the screen is cracked. Is that covered?
+PAYMENTS
+REFUNDS
+RETURNS
+SHIPPING
+WARRANTY
 ```
 
-### Step 2 — Category Detection
+New documents can be added dynamically through the UI while preserving the same category and evidence model.
 
-The Snowflake retriever identifies an obvious policy category from the question.
+## Snowflake Integration
 
-Supported categories include:
+Snowflake is used for persistent policy storage and retrieval.
+
+The main Snowflake components are:
+
+- Snowflake connection/session management
+- Document storage
+- Policy source metadata
+- Policy chunk storage
+- Cortex Search retrieval
+- Snowflake Cortex generation
+
+### SQL Setup
+
+Run the required SQL scripts in the project-defined order:
 
 ```text
-returns
-refunds
-shipping
-warranty
-payments
+1. sql/foundation.sql
+2. sql/02_seed.sql
+3. sql/chunking.sql
+4. sql/documents.sql
+5. sql/search.sql
+6. sql/validation.sql
 ```
 
-### Step 3 — Cortex Search
+The exact order can be adjusted if your Snowflake environment already contains the foundation objects required by the document-upload flow.
 
-The question is sent to the configured Cortex Search Service.
+## Configuration
 
-The service returns candidate chunks containing:
+Create the local environment file:
 
-- Chunk ID
-- Document ID
-- Document name
-- Category
-- Chunk index
-- Chunk text
-- Relevance score
+### Windows PowerShell
 
-### Step 4 — Evidence Filtering
+```powershell
+Copy-Item .env.example .env
+```
 
-The RAG service checks the retrieved chunks for meaningful overlap with the actual subject of the question.
-
-Irrelevant chunks are discarded.
-
-This prevents a response about one policy area from being grounded using unrelated FAQ content.
-
-### Step 5 — Grounded Prompt
-
-Only accepted evidence is placed into the generation prompt.
-
-The model receives:
+Configure the required Snowflake values used by the application, for example:
 
 ```text
-POLICY EVIDENCE
-+
-CUSTOMER QUESTION
-+
-STRICT GROUNDING INSTRUCTIONS
+SNOWFLAKE_ACCOUNT
+SNOWFLAKE_USER
+SNOWFLAKE_PASSWORD
+SNOWFLAKE_WAREHOUSE
+SNOWFLAKE_DATABASE
+SNOWFLAKE_SCHEMA
+SNOWFLAKE_ROLE
+SNOWFLAKE_CORTEX_MODEL
 ```
 
-### Step 6 — Cortex Generation
+Use the authentication method implemented by `providers/snowflake/connection.py`.
 
-Snowflake Cortex Complete generates the customer-facing answer.
+**Never commit `.env` or expose credentials in logs, screenshots, README files, or GitHub.**
 
-The generation configuration uses:
+## Installation
 
-```text
-temperature = 0
-max_tokens = 250
-```
-
-### Step 7 — Answer and Sources
-
-The UI displays:
-
-- Final answer
-- Retrieved source documents
-- Categories
-- Chunk IDs
-- Chunk indexes
-- Evidence text
-
----
-
-## 6. Snowflake Objects
-
-The project uses the following Snowflake environment:
-
-```text
-DATABASE:
-RETAIL_ASSIST_DB
-
-SCHEMA:
-RETAIL_ASSIST
-
-WAREHOUSE:
-<configured warehouse>
-
-CORTEX SEARCH SERVICE:
-RETAIL_ASSIST_SEARCH
-
-POLICY TABLE:
-POLICY_CHUNKS
-```
-
-The Cortex Search Service indexes the policy chunk text:
-
-```sql
-ON CHUNK_TEXT
-```
-
-and exposes metadata attributes such as:
-
-```text
-DOCUMENT_ID
-DOCUMENT_NAME
-CATEGORY
-CHUNK_INDEX
-```
-
----
-
-## 7. Cortex Search Service
-
-The search service follows this structure:
-
-```sql
-CREATE OR REPLACE CORTEX SEARCH SERVICE RETAIL_ASSIST_SEARCH
-    ON CHUNK_TEXT
-    ATTRIBUTES
-        DOCUMENT_ID,
-        DOCUMENT_NAME,
-        CATEGORY,
-        CHUNK_INDEX
-    WAREHOUSE = COMPUTE_WH
-    TARGET_LAG = '1 hour'
-    AS
-    SELECT
-        CHUNK_ID,
-        DOCUMENT_ID,
-        DOCUMENT_NAME,
-        CATEGORY,
-        CHUNK_INDEX,
-        CHUNK_TEXT
-    FROM POLICY_CHUNKS;
-```
-
-The exact warehouse should match the warehouse configured for the project.
-
----
-
-## 8. Environment Configuration
-
-Create a `.env` file in the project root.
-
-Example:
-
-```env
-SNOWFLAKE_ACCOUNT=<your_account>
-SNOWFLAKE_USER=<your_user>
-SNOWFLAKE_PASSWORD=<your_password>
-SNOWFLAKE_WAREHOUSE=<your_warehouse>
-SNOWFLAKE_DATABASE=RETAIL_ASSIST_DB
-SNOWFLAKE_SCHEMA=RETAIL_ASSIST
-SNOWFLAKE_ROLE=<your_role>
-
-SNOWFLAKE_CORTEX_MODEL=<verified_cortex_model>
-
-RETAIL_ASSIST_MODE=SNOWFLAKE
-```
-
-### Important Security Rule
-
-Never commit `.env` to Git.
-
-Add this to `.gitignore`:
-
-```gitignore
-.env
-.venv/
-__pycache__/
-*.pyc
-.streamlit/secrets.toml
-```
-
-Never place passwords, tokens, private keys, or other credentials directly inside Python source files.
-
----
-
-## 9. Installation
-
-Open PowerShell in the project directory.
-
-Create a virtual environment:
+Use Python 3.11 or a version supported by the installed Snowflake dependencies.
 
 ```powershell
 python -m venv .venv
-```
-
-Activate it:
-
-```powershell
 .venv\Scripts\Activate.ps1
-```
-
-Install the required packages:
-
-```powershell
-pip install streamlit python-dotenv snowflake-snowpark-python snowflake-ml-python
-```
-
-If the project already contains a `requirements.txt`, use:
-
-```powershell
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+## Run the Application
 
-## 10. Run the Application
-
-Make sure the environment is configured for Snowflake:
+From the project root:
 
 ```powershell
-$env:RETAIL_ASSIST_MODE="SNOWFLAKE"
-```
-
-Set Python path:
-
-```powershell
-$env:PYTHONPATH="."
-```
-
-Run Streamlit:
-
-```powershell
+$env:PYTHONPATH = "."
 streamlit run app/main.py
 ```
 
-Streamlit will display a local URL in the terminal.
+The application provides:
 
-Open the displayed URL in the browser.
+- Customer-support FAQ question input
+- Policy-grounded answer generation
+- Supporting evidence/source display
+- Dynamic knowledge-base document upload
+- Snowflake upload/integration workflow
 
----
+## Local Demo Mode
 
-## 11. Demo Mode
-
-For offline/local demonstration, the project can use the Demo provider.
-
-Set:
-
-```powershell
-$env:RETAIL_ASSIST_MODE="DEMO"
-```
-
-Then run:
+For local UI development without a live Snowflake/Cortex dependency:
 
 ```powershell
+$env:PYTHONPATH = "."
 streamlit run app/demo_main.py
 ```
 
-Demo mode does not use Snowflake retrieval or Cortex generation.
+The demo uses the provider implementations intended for local testing.
 
-For the final Snowflake-integrated demonstration, use:
+## Testing
+
+Run the automated test suite from the project root:
 
 ```powershell
-streamlit run app/main.py
+$env:PYTHONPATH = "."
+python -m pytest -q
 ```
 
-with:
+The project was also manually tested against the FAQ questions and the dynamic document/Snowflake workflow.
+
+### Validation Completed
+
+The final validation covered:
+
+- Payment FAQ retrieval
+- Shipping FAQ retrieval
+- Refund FAQ retrieval
+- Return FAQ retrieval
+- Warranty FAQ retrieval
+- Unsupported-question/refusal behavior
+- Source relevance and evidence display
+- Duplicate-document handling
+- Dynamic document upload
+- Snowflake document ingestion
+- Snowflake retrieval integration
+- Cortex Search test document flow
+
+All planned application tests for the current feature extension were completed successfully.
+
+## Retrieval and Grounding
+
+RetailAssist is designed to answer only from retrieved policy evidence.
+
+The RAG flow is:
 
 ```text
-RETAIL_ASSIST_MODE=SNOWFLAKE
-```
-
----
-
-## 12. Testing
-
-The Cortex Search service can be tested directly using the queries in:
-
-```text
-sql/search.sql
-```
-
-Recommended test categories:
-
-### Warranty
-
-```text
-My device was dropped and the screen is cracked. Is that covered?
-```
-
-### Returns
-
-```text
-The product arrived broken. Can I send it back?
-```
-
-### Shipping
-
-```text
-How long will normal delivery take?
-```
-
-### Refunds
-
-```text
-My refund has been pending for several business days. What should I do?
-```
-
-### Payments
-
-```text
-Why do I see a pending card charge even though my checkout failed?
-```
-
-### Unsupported
-
-Ask a question outside the supplied retail policy knowledge base.
-
-Expected behavior:
-
-```text
-I couldn't find a policy that answers that question.
-```
-
----
-
-## 13. Grounding Strategy
-
-RetailAssist uses multiple safeguards to reduce unsupported answers.
-
-### Policy-only prompting
-
-The generation prompt explicitly states that the supplied policy evidence is the only source of truth.
-
-### Retrieval filtering
-
-Retrieved chunks are evaluated before being passed to the generator.
-
-### Category filtering
-
-When a question clearly belongs to one policy category, the search request can restrict retrieval to that category.
-
-### Evidence limit
-
-The RAG service keeps only a small number of meaningful evidence chunks.
-
-### Refusal behavior
-
-If relevant evidence cannot be established, the application returns:
-
-```text
-I couldn't find a policy that answers that question.
-```
-
-This is preferable to generating an unsupported answer.
-
----
-
-## 14. Source and Chunk Handling
-
-Policy documents are divided into chunks before being indexed.
-
-Each chunk retains metadata:
-
-```text
-CHUNK_ID
-DOCUMENT_ID
-DOCUMENT_NAME
-CATEGORY
-CHUNK_INDEX
-CHUNK_TEXT
-```
-
-This allows the UI to show exactly which policy evidence contributed to the response.
-
-Multiple relevant chunks can be returned when the question requires information from more than one section of the policy.
-
-The system does not assume that every retrieved chunk is relevant. Retrieval candidates are filtered before generation.
-
----
-
-## 15. Provider-Neutral Design
-
-The RAG layer does not directly depend on Snowflake.
-
-The application uses provider contracts:
-
-```python
+User Question
+     ↓
 Retriever
+     ↓
+Relevant Policy Chunks
+     ↓
+Grounded RAG Context
+     ↓
 Generator
+     ↓
+Policy-Grounded Answer
+     ↓
+Supporting Sources
 ```
 
-The Snowflake implementation provides:
+If sufficient policy evidence is not found, the application should avoid inventing an answer and return the configured unsupported-question response.
+
+## Source Relevance
+
+The retrieval layer includes relevance/source selection logic so that multiple documents containing similar FAQ wording do not unnecessarily dominate the displayed evidence.
+
+This is especially important when the same policy question exists in different document formats or when legacy and newly uploaded documents contain overlapping content.
+
+The system tracks document identity and metadata so retrieval results can be associated with the correct uploaded source.
+
+## Security
+
+- Keep `.env` out of source control.
+- Never commit passwords, PATs, or Snowflake credentials.
+- Do not print complete environment configuration.
+- Use the minimum Snowflake role privileges required by the application.
+- Keep Snowflake-specific imports and logic inside `providers/snowflake/`.
+- Do not place secrets in screenshots or demo recordings.
+
+## Troubleshooting
+
+### `ModuleNotFoundError`
+
+Activate the virtual environment and reinstall dependencies:
+
+```powershell
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Set the project root on `PYTHONPATH`:
+
+```powershell
+$env:PYTHONPATH = "."
+```
+
+### Snowflake authentication failure
+
+Check the account, user, authentication method, warehouse, database, schema, role, and network policy.
+
+### Cortex Search unavailable
+
+Verify that the Snowflake account/region provides Cortex Search and that the active role has access to the required service and underlying objects.
+
+### Uploaded document is not retrieved
+
+Debug in this order:
 
 ```text
-SnowflakeRetriever
-SnowflakeGenerator
+Upload
+  ↓
+Text extraction
+  ↓
+Category/document metadata
+  ↓
+Snowflake storage
+  ↓
+Chunk ingestion
+  ↓
+Cortex Search indexing
+  ↓
+Retrieval
+  ↓
+RAG response
 ```
 
-The Demo implementation provides:
+### Wrong or duplicate sources appear
+
+Check document IDs and chunk metadata first. Do not solve retrieval problems only by changing the generation prompt.
+
+## Git Workflow
+
+The extended functionality was developed on a dedicated feature branch:
 
 ```text
-DemoRetriever
-DemoGenerator
+feature/dynamic-document-upload
 ```
 
-This separation makes the application easier to test, maintain, and extend.
+After testing, the feature branch was merged into `main` through a GitHub pull request.
 
----
+Recommended workflow for future changes:
 
-## 16. Security Considerations
+```powershell
+git checkout -b feature/<feature-name>
+git add .
+git commit -m "feat: <description>"
+git push -u origin feature/<feature-name>
+```
 
-The project follows these practices:
+Then open a pull request into `main`.
 
-- Credentials are stored in environment variables.
-- `.env` is excluded from version control.
-- Snowflake access is controlled through a Snowflake role.
-- The application does not expose Snowflake credentials in the UI.
-- The generator is explicitly instructed not to use outside knowledge.
-- Unsupported questions are refused.
-- Retrieved evidence is displayed for transparency.
-
-For production deployment, credentials should preferably be supplied through a managed secret-management mechanism rather than a local `.env` file.
-
----
-
-## 17. Error Handling
-
-The application validates:
-
-- Missing Snowflake configuration
-- Empty questions
-- Missing Cortex model configuration
-- Empty Cortex responses
-- Empty retrieved chunks
-- Unsupported questions
-
-Typical configuration error:
+## Final Project Status
 
 ```text
-SNOWFLAKE_CORTEX_MODEL must be configured with a verified Cortex model.
+Core RAG architecture             DONE
+Policy FAQ corpus                 DONE
+Provider contracts                DONE
+Streamlit UI                      DONE
+Dynamic document upload           DONE
+PDF/DOCX/TXT/Markdown support     DONE
+Category detection                DONE
+Duplicate handling                DONE
+Snowflake document storage        DONE
+Chunk ingestion                   DONE
+Cortex Search integration         DONE
+Retrieval/source improvements     DONE
+Snowflake integration testing     DONE
+FAQ/manual validation             DONE
+Feature branch                    MERGED INTO MAIN
+README                            UPDATED
 ```
 
-This means the model environment variable has not been configured with a valid model available to the Snowflake account.
+## Project Summary
 
----
+RetailAssist demonstrates how a retail customer-support assistant can combine **RAG, policy-grounded generation, dynamic knowledge ingestion, and Snowflake** into a maintainable application architecture.
 
-## 18. Expected User Experience
-
-A typical supported interaction should look like:
-
-```text
-Customer:
-What is the standard return window?
-
-RetailAssist:
-According to the policy, most unused physical products can be
-returned within 30 calendar days of delivery.
-```
-
-The interface should also expose the supporting policy source/chunk information.
-
-For an unsupported question:
-
-```text
-Customer:
-What is the weather today?
-
-RetailAssist:
-I couldn't find a policy that answers that question.
-```
-
----
-
-## 19. Production-Level Improvements
-
-Potential next-stage improvements include:
-
-- Authentication and authorization
-- Centralized secrets management
-- Automated evaluation datasets
-- Retrieval precision/recall monitoring
-- Observability and structured logging
-- User feedback collection
-- Conversation history
-- Citation links to original policy documents
-- Automated document ingestion
-- CI/CD pipeline
-- Unit and integration test suite
-- Role-based Snowflake access
-- Production deployment behind a secure application gateway
-
----
-
-## 20. Project Outcome
-
-RetailAssist demonstrates an end-to-end enterprise-style RAG workflow using Snowflake:
-
-```text
-Policy Documents
-      ↓
-Policy Chunking
-      ↓
-Snowflake Policy Table
-      ↓
-Cortex Search
-      ↓
-Relevant Evidence
-      ↓
-Evidence Filtering
-      ↓
-Grounded Cortex Generation
-      ↓
-Customer Answer + Sources
-```
-
-The key design principle is:
-
-> **Retrieve first, ground the answer in policy evidence, and refuse when sufficient evidence is unavailable.**
-
-This makes RetailAssist suitable as a practical demonstration of retrieval-augmented customer-support automation with Snowflake Cortex.
+The extended version moves beyond a fixed FAQ dataset: new supported policy documents can be uploaded through the application, persisted in Snowflake, processed into retrieval chunks, and incorporated into the knowledge base while keeping the core RAG orchestration independent of Snowflake-specific implementation details.
