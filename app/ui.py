@@ -1,11 +1,53 @@
 import re
 import html
 import textwrap
+import hashlib
 
 import streamlit as st
 
 from app.controller import RetailAssistController
 from rag.service import RAGResponse
+
+
+def generate_document_id(file_bytes: bytes) -> str:
+    """Generate a unique document ID from file contents."""
+    return hashlib.sha256(file_bytes).hexdigest()[:16]
+
+
+def validate_uploaded_files(uploaded_files):
+    """Validate uploaded knowledge-base documents."""
+    valid_files = []
+    errors = []
+
+    max_files = 5
+    max_size = 20 * 1024 * 1024  # 20 MB
+
+    if len(uploaded_files) > max_files:
+        errors.append(f"Maximum {max_files} files can be uploaded at once.")
+        uploaded_files = uploaded_files[:max_files]
+
+    allowed_extensions = {".pdf", ".docx", ".md", ".txt"}
+
+    for uploaded_file in uploaded_files:
+        filename = uploaded_file.name.lower()
+
+        if not any(filename.endswith(ext) for ext in allowed_extensions):
+            errors.append(f"{uploaded_file.name}: Unsupported file type.")
+            continue
+
+        file_bytes = uploaded_file.getvalue()
+
+        if len(file_bytes) > max_size:
+            errors.append(f"{uploaded_file.name}: File exceeds the 20 MB limit.")
+            continue
+
+        if len(file_bytes) == 0:
+            errors.append(f"{uploaded_file.name}: File is empty.")
+            continue
+
+        valid_files.append(uploaded_file)
+
+    return valid_files, errors
 
 
 # ============================================================
@@ -854,6 +896,109 @@ def run_app(
         """,
         unsafe_allow_html=True,
     )
+
+    # ---------------------------------------------------------
+    # Knowledge base document upload
+    # ---------------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Knowledge base</div>
+        <div class="ra-section-title">Upload documents</div>
+        <div class="ra-helper">
+            Upload PDF, DOCX, Markdown, or TXT files to add
+            new knowledge to the customer-support system.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        uploaded_files = st.file_uploader(
+            "Choose documents",
+            type=["pdf", "docx", "md", "txt"],
+            accept_multiple_files=True,
+            help="Maximum 5 files, 20 MB per file.",
+        )
+
+        if uploaded_files:
+            valid_files, upload_errors = validate_uploaded_files(uploaded_files)
+
+            for error in upload_errors:
+                st.error(error)
+
+            if valid_files:
+                st.markdown("**Selected documents**")
+
+                for uploaded_file in valid_files:
+                    file_bytes = uploaded_file.getvalue()
+
+                    document_id = generate_document_id(file_bytes)
+
+                    file_size_mb = len(file_bytes) / (1024 * 1024)
+
+                    detected_category = "Detecting..."
+                    if controller.document_store is not None:
+                        try:
+                            detected_category = (
+                                controller.document_store.detect_category_from_file(
+                                    file_bytes,
+                                    uploaded_file.name,
+                                )
+                            )
+                        except Exception:
+                            detected_category = "Unable to detect"
+
+                    st.write(
+                        f"📄 **{uploaded_file.name}** "
+                        f"• {file_size_mb:.2f} MB "
+                        f"• `{document_id}` "
+                        f"• **Category: {detected_category}**"
+                    )
+
+                if st.button(
+                    "⬆️ Upload to Snowflake",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    if controller.document_store is None:
+                        st.error("Document upload requires Snowflake mode.")
+
+                    else:
+                        successful_uploads = 0
+
+                        for uploaded_file in valid_files:
+                            file_bytes = uploaded_file.getvalue()
+
+                            document_id = generate_document_id(file_bytes)
+
+                            try:
+                                staged_path = controller.document_store.upload_to_stage(
+                                    file_bytes=file_bytes,
+                                    filename=uploaded_file.name,
+                                    document_id=document_id,
+                                    category=None,
+                                )
+
+                                st.success(
+                                    f"{uploaded_file.name} uploaded successfully."
+                                )
+
+                                st.caption(f"Document ID: {document_id}")
+
+                                st.caption(f"Stage: {staged_path}")
+
+                                successful_uploads += 1
+
+                            except Exception as exc:
+                                st.error(
+                                    f"Failed to upload {uploaded_file.name}: {exc}"
+                                )
+
+                        if successful_uploads:
+                            st.info(
+                                f"{successful_uploads} document(s) uploaded to Snowflake."
+                            )
 
     # ---------------------------------------------------------
     # Question area

@@ -6,11 +6,16 @@ class RetailAssistController:
     Application controller for RetailAssist.
 
     The controller coordinates user requests with the
-    provider-neutral RAG service.
+    provider-neutral RAG service and document ingestion.
     """
 
-    def __init__(self, rag_service: RAGService):
+    def __init__(
+        self,
+        rag_service: RAGService,
+        document_store=None,
+    ):
         self.rag_service = rag_service
+        self.document_store = document_store
 
     def ask(
         self,
