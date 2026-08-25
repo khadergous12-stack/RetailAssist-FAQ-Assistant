@@ -14,10 +14,13 @@ def create_controller() -> RetailAssistController:
         "SNOWFLAKE",
     ).upper()
 
+    document_store = None
+
     if mode == "SNOWFLAKE":
         from providers.snowflake.connection import create_snowflake_session
         from providers.snowflake.generator import SnowflakeGenerator
         from providers.snowflake.retriever import SnowflakeRetriever
+        from providers.snowflake.document_store import DocumentStore
 
         session = create_snowflake_session()
 
@@ -26,6 +29,10 @@ def create_controller() -> RetailAssistController:
         )
 
         generator = SnowflakeGenerator(
+            session=session,
+        )
+
+        document_store = DocumentStore(
             session=session,
         )
 
@@ -45,6 +52,7 @@ def create_controller() -> RetailAssistController:
 
     return RetailAssistController(
         rag_service=rag_service,
+        document_store=document_store,
     )
 
 
