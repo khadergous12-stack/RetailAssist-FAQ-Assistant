@@ -360,7 +360,11 @@ def extract_relevant_section(
 
 def inject_box_styles() -> None:
     """
+<<<<<<< HEAD
     Inject professional, industry-style CSS for the RetailAssist interface.
+=======
+    Inject professional, industry-style CSS for the SupportAI interface.
+>>>>>>> supportai
     This function changes presentation only; application logic is unchanged.
     """
 
@@ -375,9 +379,16 @@ def inject_box_styles() -> None:
 
             .stApp {
                 background:
+<<<<<<< HEAD
                     radial-gradient(circle at 8% 8%, rgba(99, 102, 241, 0.14), transparent 28%),
                     radial-gradient(circle at 92% 18%, rgba(14, 165, 233, 0.12), transparent 30%),
                     radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.08), transparent 34%),
+=======
+                    radial-gradient(circle at 8% 8%, rgba(99, 102, 241, 0.18), transparent 28%),
+                    radial-gradient(circle at 92% 18%, rgba(14, 165, 233, 0.16), transparent 30%),
+                    radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.11), transparent 34%),
+                    radial-gradient(circle at 75% 65%, rgba(255, 255, 255, 0.75), transparent 22%),
+>>>>>>> supportai
                     linear-gradient(135deg, #eef4ff 0%, #f7f5ff 48%, #edf7fb 100%);
                 min-height: 100vh;
             }
@@ -432,12 +443,71 @@ def inject_box_styles() -> None:
             .ra-hero::after {
                 content: "";
                 position: absolute;
+<<<<<<< HEAD
                 width: 260px;
                 height: 260px;
                 right: -80px;
                 top: -120px;
                 border-radius: 50%;
                 background: rgba(255, 255, 255, 0.08);
+=======
+                width: 360px;
+                height: 360px;
+                right: -120px;
+                top: -170px;
+                border-radius: 50%;
+                background:
+                    radial-gradient(
+                        circle at 35% 35%,
+                        rgba(255, 255, 255, 0.22) 0%,
+                        rgba(129, 140, 248, 0.14) 30%,
+                        rgba(255, 255, 255, 0) 70%
+                    );
+                filter: blur(1px);
+                animation: supportai-orb 8s ease-in-out infinite alternate;
+            }
+
+            .ra-hero::before {
+                content: "";
+                position: absolute;
+                inset: -60% -20%;
+                background:
+                    linear-gradient(
+                        115deg,
+                        transparent 42%,
+                        rgba(255, 255, 255, 0.08) 48%,
+                        rgba(255, 255, 255, 0.20) 50%,
+                        rgba(255, 255, 255, 0.08) 52%,
+                        transparent 58%
+                    );
+                transform: translateX(-55%);
+                animation: supportai-shine 7s ease-in-out infinite;
+                pointer-events: none;
+                z-index: 0;
+            }
+
+            @keyframes supportai-shine {
+                0%, 18% {
+                    transform: translateX(-55%) rotate(0deg);
+                    opacity: 0;
+                }
+                30% {
+                    opacity: 1;
+                }
+                58%, 100% {
+                    transform: translateX(55%) rotate(0deg);
+                    opacity: 0;
+                }
+            }
+
+            @keyframes supportai-orb {
+                from {
+                    transform: translate3d(0, 0, 0) scale(0.96);
+                }
+                to {
+                    transform: translate3d(-18px, 16px, 0) scale(1.06);
+                }
+>>>>>>> supportai
             }
 
             .ra-brand-row {
@@ -831,19 +901,63 @@ def render_response(
         document_name = html.escape(str(chunk.document_name))
         category = html.escape(str(chunk.category))
         chunk_index = html.escape(str(chunk.chunk_index))
+<<<<<<< HEAD
         safe_question = html.escape(source_question)
         safe_text = html.escape(source_text).replace("\n", "<br>")
 
+=======
+
+        page_number = getattr(chunk, "page_number", None)
+        section_heading = getattr(chunk, "section_heading", None)
+        source_type = str(getattr(chunk, "source_type", "") or "").upper()
+
+        safe_question = html.escape(source_question)
+        safe_text = html.escape(source_text).replace("\n", "<br>")
+
+        # ---------------------------------------------------------
+        # Page / section metadata
+        # ---------------------------------------------------------
+
+        metadata_parts = [f"Category <code>{category}</code>"]
+
+        # Show page number for uploaded PDF/DOCX documents.
+        if (
+            source_type == "USER_UPLOAD"
+            and page_number is not None
+            and str(document_name).lower().endswith((".pdf", ".docx"))
+        ):
+            metadata_parts.append(
+                f'<span style="margin-left:10px;">Page <code>{html.escape(str(page_number))}</code></span>'
+            )
+
+        # Show section heading when available.
+        if section_heading and str(section_heading).strip():
+            safe_section = html.escape(str(section_heading).strip())
+            metadata_parts.append(
+                f'<span style="margin-left:10px;">Section <code>{safe_section}</code></span>'
+            )
+
+        metadata_parts.append(
+            f'<span style="margin-left:10px;">Chunk <code>{chunk_index}</code></span>'
+        )
+
+        source_metadata_html = "".join(metadata_parts)
+
+>>>>>>> supportai
         source_html = (
             '<div class="ra-source-box">'
             '<div class="ra-source-top">'
             f'<span class="ra-source-number">SOURCE {source_number}</span>'
             f'<div class="ra-source-title">{document_name}</div>'
             "</div>"
+<<<<<<< HEAD
             '<div class="ra-source-meta">'
             f"Category <code>{category}</code>"
             f'<span style="margin-left:10px;">Chunk <code>{chunk_index}</code></span>'
             "</div>"
+=======
+            f'<div class="ra-source-meta">{source_metadata_html}</div>'
+>>>>>>> supportai
             f'<div class="ra-source-question">{safe_question}</div>'
             f'<div class="ra-source-text">{safe_text}</div>'
             "</div>"
@@ -852,6 +966,7 @@ def render_response(
         st.markdown(source_html, unsafe_allow_html=True)
 
 
+<<<<<<< HEAD
 def run_app(
     controller: RetailAssistController,
 ) -> None:
@@ -860,6 +975,233 @@ def run_app(
     st.set_page_config(
         page_title="RetailAssist | FAQ Assistant",
         page_icon="🛍️",
+=======
+def render_document_management(controller: RetailAssistController) -> None:
+    """
+    Render the document-management console.
+
+    All document operations are delegated to DocumentStore so the UI only
+    handles presentation and user actions.
+    """
+    store = getattr(controller, "document_store", None)
+    if store is None:
+        return
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Knowledge base management</div>
+        <div class="ra-section-title">Document management</div>
+        <div class="ra-helper">
+            Review uploaded documents, inspect metadata, retry failed processing,
+            re-index documents, or deactivate documents that should no longer
+            be used as retrieval evidence.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            try:
+                available_categories = store.list_categories()
+            except Exception:
+                available_categories = []
+
+            category_filter = st.selectbox(
+                "Category",
+                ["All"] + available_categories,
+                key="doc_category_filter",
+            )
+
+        with col2:
+            status_filter = st.selectbox(
+                "Status",
+                [
+                    "All",
+                    "UPLOADING",
+                    "PARSING",
+                    "INDEXING",
+                    "INDEXED",
+                    "FAILED",
+                    "DELETED",
+                ],
+                key="doc_status_filter",
+            )
+
+        with col3:
+            active_only = st.checkbox(
+                "Active documents only",
+                value=False,
+                key="doc_active_only",
+            )
+
+        try:
+            documents = store.list_documents(
+                category=category_filter,
+                status=status_filter,
+                active_only=active_only,
+            )
+        except Exception as exc:
+            st.error(f"Unable to load document metadata: {exc}")
+            return
+
+        if not documents:
+            st.info("No documents match the selected filters.")
+            return
+
+        rows = []
+        for doc in documents:
+            rows.append(
+                {
+                    "Filename": doc.get("ORIGINAL_FILENAME", ""),
+                    "Type": str(doc.get("FILE_TYPE", "")).upper(),
+                    "Category": doc.get("CATEGORY", ""),
+                    "Status": doc.get("PROCESSING_STATUS", ""),
+                    "Pages": doc.get("PAGE_COUNT", 0),
+                    "Chunks": doc.get("CHUNK_COUNT", 0),
+                    "Active": bool(doc.get("ACTIVE", False)),
+                    "Uploaded": str(doc.get("CREATED_AT", "")),
+                }
+            )
+
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        labels = [
+            f"{doc.get('ORIGINAL_FILENAME', '')} — "
+            f"{doc.get('PROCESSING_STATUS', '')} — "
+            f"{doc.get('DOCUMENT_ID', '')[:8]}"
+            for doc in documents
+        ]
+
+        selected_label = st.selectbox(
+            "Select a document",
+            labels,
+            key="selected_document_label",
+        )
+
+        selected_index = labels.index(selected_label)
+        selected = documents[selected_index]
+        document_id = str(selected["DOCUMENT_ID"])
+
+        with st.expander("View metadata", expanded=False):
+            metadata_rows = {
+                "Document ID": selected.get("DOCUMENT_ID"),
+                "Original filename": selected.get("ORIGINAL_FILENAME"),
+                "Sanitized filename": selected.get("SANITIZED_FILENAME"),
+                "File type": selected.get("FILE_TYPE"),
+                "File size (bytes)": selected.get("FILE_SIZE"),
+                "Content hash": selected.get("CONTENT_HASH"),
+                "Category": selected.get("CATEGORY"),
+                "Status": selected.get("PROCESSING_STATUS"),
+                "Page count": selected.get("PAGE_COUNT"),
+                "Character count": selected.get("CHARACTER_COUNT"),
+                "Chunk count": selected.get("CHUNK_COUNT"),
+                "Uploaded by": selected.get("UPLOADED_BY"),
+                "Created": selected.get("CREATED_AT"),
+                "Updated": selected.get("UPDATED_AT"),
+                "Active": selected.get("ACTIVE"),
+                "Error": selected.get("ERROR_MESSAGE"),
+            }
+            st.json(metadata_rows)
+
+        action1, action2, action3, action4 = st.columns(4)
+
+        status = str(selected.get("PROCESSING_STATUS", "")).upper()
+        active = bool(selected.get("ACTIVE", False))
+
+        with action1:
+            retry_clicked = st.button(
+                "↻ Retry",
+                use_container_width=True,
+                disabled=status == "INDEXED" and active,
+                key=f"retry_{document_id}",
+            )
+
+        with action2:
+            reindex_clicked = st.button(
+                "⟳ Re-index",
+                use_container_width=True,
+                key=f"reindex_{document_id}",
+            )
+
+        with action3:
+            delete_clicked = st.button(
+                "🗑️ Delete",
+                use_container_width=True,
+                disabled=not active,
+                key=f"delete_{document_id}",
+            )
+
+        with action4:
+            refresh_clicked = st.button(
+                "🔄 Refresh",
+                use_container_width=True,
+                key=f"refresh_{document_id}",
+            )
+
+        if retry_clicked:
+            try:
+                chunk_count = store.retry_document(document_id)
+                st.success(
+                    f"Retry completed for {selected['ORIGINAL_FILENAME']} "
+                    f"({chunk_count} chunks)."
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Retry failed: {exc}")
+
+        if reindex_clicked:
+            try:
+                chunk_count = store.reindex_document(document_id)
+                st.success(
+                    f"Re-indexed {selected['ORIGINAL_FILENAME']} "
+                    f"({chunk_count} chunks)."
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Re-index failed: {exc}")
+
+        if delete_clicked:
+            try:
+                store.delete_document(document_id)
+                st.success(
+                    f"{selected['ORIGINAL_FILENAME']} was deactivated. "
+                    "It will no longer be eligible for retrieval."
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Delete failed: {exc}")
+
+        if refresh_clicked:
+            try:
+                refresh_method = getattr(store, "refresh_search", None)
+                if refresh_method is None:
+                    st.info(
+                        "Document metadata refreshed. Cortex Search will refresh "
+                        "according to its configured target lag."
+                    )
+                else:
+                    refresh_method()
+                    st.success("Cortex Search refresh requested.")
+            except Exception as exc:
+                st.warning(f"Search refresh could not be requested: {exc}")
+
+
+def run_app(
+    controller: RetailAssistController,
+) -> None:
+    """Render the SupportAI Streamlit application."""
+
+    st.set_page_config(
+        page_title="SupportAI | Customer Support Assistant",
+        page_icon="✦",
+>>>>>>> supportai
         layout="centered",
         initial_sidebar_state="collapsed",
     )
@@ -876,12 +1218,21 @@ def run_app(
         """
         <div class="ra-hero">
             <div class="ra-brand-row">
+<<<<<<< HEAD
                 <div class="ra-brand-icon">🛍️</div>
                 <div>
                     <div class="ra-brand-title">RetailAssist FAQ Assistant</div>
                     <div class="ra-brand-subtitle">
                         Grounded customer-support intelligence for retail policies.
                         Ask a question and receive a concise answer backed by approved FAQ evidence.
+=======
+                <div class="ra-brand-icon">✦</div>
+                <div>
+                    <div class="ra-brand-title">SupportAI</div>
+                    <div class="ra-brand-subtitle">
+                        AI-powered customer support grounded in trusted policy knowledge.
+                        Ask a question and receive a concise answer backed by approved evidence.
+>>>>>>> supportai
                     </div>
                 </div>
             </div><div class="ra-status-strip">
@@ -933,8 +1284,11 @@ def run_app(
                 for uploaded_file in valid_files:
                     file_bytes = uploaded_file.getvalue()
 
+<<<<<<< HEAD
                     document_id = generate_document_id(file_bytes)
 
+=======
+>>>>>>> supportai
                     file_size_mb = len(file_bytes) / (1024 * 1024)
 
                     detected_category = "Detecting..."
@@ -952,9 +1306,15 @@ def run_app(
                     st.write(
                         f"📄 **{uploaded_file.name}** "
                         f"• {file_size_mb:.2f} MB "
+<<<<<<< HEAD
                         f"• `{document_id}` "
                         f"• **Category: {detected_category}**"
                     )
+=======
+                        f"• **Category: {detected_category}**"
+                    )
+                    st.caption("Document ID will be assigned during upload.")
+>>>>>>> supportai
 
                 if st.button(
                     "⬆️ Upload to Snowflake",
@@ -970,16 +1330,36 @@ def run_app(
                         for uploaded_file in valid_files:
                             file_bytes = uploaded_file.getvalue()
 
+<<<<<<< HEAD
                             document_id = generate_document_id(file_bytes)
 
+=======
+>>>>>>> supportai
                             try:
                                 staged_path = controller.document_store.upload_to_stage(
                                     file_bytes=file_bytes,
                                     filename=uploaded_file.name,
+<<<<<<< HEAD
                                     document_id=document_id,
                                     category=None,
                                 )
 
+=======
+                                    document_id=None,
+                                    category=None,
+                                )
+
+                                # DocumentStore owns the canonical ID.
+                                # The returned stage path is:
+                                # @STAGE/<document_id>/<filename>
+                                stage_parts = staged_path.split("/", 2)
+                                document_id = (
+                                    stage_parts[1]
+                                    if len(stage_parts) >= 2
+                                    else "Unknown"
+                                )
+
+>>>>>>> supportai
                                 st.success(
                                     f"{uploaded_file.name} uploaded successfully."
                                 )
@@ -1001,6 +1381,15 @@ def run_app(
                             )
 
     # ---------------------------------------------------------
+<<<<<<< HEAD
+=======
+    # Document management
+    # ---------------------------------------------------------
+
+    render_document_management(controller)
+
+    # ---------------------------------------------------------
+>>>>>>> supportai
     # Question area
     # ---------------------------------------------------------
 
@@ -1009,7 +1398,11 @@ def run_app(
         <div class="ra-section-label">Customer support</div>
         <div class="ra-section-title">Ask your policy question</div>
         <div class="ra-helper">
+<<<<<<< HEAD
             Returns · Refunds · Shipping · Warranty · Payments
+=======
+            Ask about any policy available in the knowledge base.
+>>>>>>> supportai
         </div>
         """,
         unsafe_allow_html=True,
@@ -1031,7 +1424,11 @@ def run_app(
 
     with col1:
         ask_clicked = st.button(
+<<<<<<< HEAD
             "🔎  Ask RetailAssist",
+=======
+            "✦  Ask SupportAI",
+>>>>>>> supportai
             type="primary",
             use_container_width=True,
         )
@@ -1061,7 +1458,11 @@ def run_app(
     st.markdown(
         """
         <div class="ra-footer">
+<<<<<<< HEAD
             RetailAssist • Grounded answers from approved policy evidence
+=======
+            SupportAI • Grounded answers from approved policy evidence
+>>>>>>> supportai
         </div>
         """,
         unsafe_allow_html=True,

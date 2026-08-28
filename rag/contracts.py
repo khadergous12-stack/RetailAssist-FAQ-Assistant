@@ -14,6 +14,12 @@ class RetrievedChunk:
     chunk_text: str
     score: float | None = None
 
+    # Page/evidence metadata. These are optional so built-in FAQ rows
+    # without page metadata continue to work.
+    page_number: int | None = None
+    source_type: str = ""
+    section_heading: str = ""
+
 
 class Retriever(Protocol):
     """Interface used by the RAG service for evidence retrieval."""

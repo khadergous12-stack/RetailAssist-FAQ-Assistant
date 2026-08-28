@@ -1,5 +1,17 @@
+<<<<<<< HEAD
 import os
 
+=======
+import logging
+import os
+
+
+logging.basicConfig(
+    level=os.environ.get("RETAIL_ASSIST_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+>>>>>>> supportai
 from app.controller import RetailAssistController
 from rag.service import RAGService
 
