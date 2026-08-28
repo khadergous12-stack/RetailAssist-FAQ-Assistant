@@ -1,0 +1,10 @@
+streamlit
+python-dotenv
+snowflake-snowpark-python
+snowflake-ml-python
+pytest
+pypdf
+python-docx
+pymupdf
+pytesseract
+Pillow

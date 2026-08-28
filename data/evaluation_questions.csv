@@ -1,0 +1,22 @@
+id,question,expected_source,answerable
+E001,My product arrived broken. Can I send it back?,Returns FAQ,true
+E002,Who pays the postage if the item was damaged when delivered?,Returns FAQ,true
+E003,Can I return an engraved product because I changed my mind?,Returns FAQ,true
+E004,How quickly does RetailAssist process an approved refund?,Refunds FAQ,true
+E005,My refund was submitted eight business days ago. What should I do?,Refunds FAQ,true
+E006,Will my express delivery fee always be refunded?,Refunds FAQ,true
+E007,How many business days does ordinary delivery take?,Shipping FAQ,true
+E008,Tracking says delivered but there is no parcel. What should I do?,Shipping FAQ,true
+E009,When do you officially treat a shipment as lost?,Shipping FAQ,true
+E010,I dropped my device and cracked it. Is that covered?,Warranty FAQ,true
+E011,How long is the normal warranty?,Warranty FAQ,true
+E012,How long is the warranty on a replacement item?,Warranty FAQ,true
+E013,Why is there a pending card charge even though checkout failed?,Payments FAQ,true
+E014,Can I pay half with one card and half with another?,Payments FAQ,true
+E015,Do you accept Bitcoin?,Payments FAQ,true
+E016,Do you offer same-day drone delivery?,NONE,false
+E017,Can I return a product after five years?,Returns FAQ,true
+E018,Does the warranty cover theft?,NONE,false
+E019,Can support agents see my entire card number?,Payments FAQ,true
+E020,Can I change the shipping address once the parcel is already on the truck?,Shipping FAQ,true
+

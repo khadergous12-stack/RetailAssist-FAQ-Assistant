@@ -1,0 +1,107 @@
+-- ============================================================
+-- RetailAssist
+-- Dynamic Document Management Schema
+-- ============================================================
+
+USE DATABASE RETAIL_ASSIST_DB;
+USE SCHEMA RETAIL_ASSIST;
+
+CREATE STAGE IF NOT EXISTS DOCUMENT_UPLOAD_STAGE
+    ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
+
+CREATE TABLE IF NOT EXISTS DOCUMENTS (
+    DOCUMENT_ID        VARCHAR(100) NOT NULL,
+    ORIGINAL_FILENAME  VARCHAR(255) NOT NULL,
+    SANITIZED_FILENAME VARCHAR(255) NOT NULL,
+    STAGED_FILE_PATH   VARCHAR(1000),
+    FILE_TYPE          VARCHAR(50) NOT NULL,
+    FILE_SIZE          NUMBER NOT NULL,
+    CONTENT_HASH       VARCHAR(64) NOT NULL,
+    CATEGORY           VARCHAR(100),
+    DESCRIPTION        VARCHAR(1000),
+    TAGS               VARCHAR(1000),
+    UPLOADED_BY        VARCHAR(255),
+    PROCESSING_STATUS  VARCHAR(30) NOT NULL DEFAULT 'UPLOADED',
+    PAGE_COUNT         INTEGER,
+    CHARACTER_COUNT    INTEGER,
+    CHUNK_COUNT        INTEGER,
+    ERROR_MESSAGE      VARCHAR(2000),
+    CREATED_AT         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    ACTIVE             BOOLEAN DEFAULT TRUE,
+    CONSTRAINT PK_DOCUMENTS PRIMARY KEY (DOCUMENT_ID),
+    CONSTRAINT UQ_DOCUMENT_HASH UNIQUE (CONTENT_HASH)
+);
+
+-- ============================================================
+-- DOCUMENT CONTENT
+-- Stores extracted text before chunking
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS DOCUMENT_CONTENT (
+    CONTENT_ID          VARCHAR(120) NOT NULL,
+    DOCUMENT_ID        VARCHAR(100) NOT NULL,
+    PAGE_INDEX         INTEGER,
+    PAGE_NUMBER        INTEGER,
+    CONTENT            TEXT NOT NULL,
+    CONTENT_FORMAT     VARCHAR(50) NOT NULL,
+    SECTION            VARCHAR(1000),
+    PARSE_STATUS       VARCHAR(30) DEFAULT 'PARSED',
+    PARSE_ERROR        VARCHAR(2000),
+    CREATED_AT         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+
+    CONSTRAINT PK_DOCUMENT_CONTENT
+        PRIMARY KEY (CONTENT_ID)
+);
+
+
+-- ============================================================
+-- DOCUMENT CHUNKS
+-- New unified chunk table for Cortex Search
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS DOCUMENT_CHUNKS (
+    CHUNK_ID            VARCHAR(150) NOT NULL,
+    DOCUMENT_ID         VARCHAR(100) NOT NULL,
+    DOCUMENT_NAME       VARCHAR(255) NOT NULL,
+    CATEGORY            VARCHAR(100),
+    CHUNK_INDEX         INTEGER NOT NULL,
+    CHUNK_TEXT          TEXT NOT NULL,
+    CHUNK_LENGTH        INTEGER,
+    SOURCE_PAGE_INDEX   INTEGER,
+    SOURCE_PAGE_NUMBER  INTEGER,
+    SECTION             VARCHAR(1000),
+    UPLOAD_SOURCE       VARCHAR(30) DEFAULT 'USER_UPLOAD',
+    ACTIVE              BOOLEAN DEFAULT TRUE,
+    CREATED_AT          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+
+    CONSTRAINT PK_DOCUMENT_CHUNKS
+        PRIMARY KEY (CHUNK_ID)
+);
+
+-- Backward-compatible additions for databases created before
+-- dynamic document management was introduced.
+ALTER TABLE POLICY_CHUNKS
+    ADD COLUMN IF NOT EXISTS ACTIVE BOOLEAN DEFAULT TRUE;
+
+-- Existing rows remain searchable after the migration.
+UPDATE POLICY_CHUNKS
+SET ACTIVE = TRUE
+WHERE ACTIVE IS NULL;
+
+SHOW TABLES;
+
+SELECT
+    DOCUMENT_ID,
+    ORIGINAL_FILENAME,
+    FILE_TYPE,
+    CATEGORY,
+    PROCESSING_STATUS,
+    PAGE_COUNT,
+    CHUNK_COUNT,
+    ERROR_MESSAGE,
+    ACTIVE,
+    CREATED_AT,
+    UPDATED_AT
+FROM DOCUMENTS
+ORDER BY CREATED_AT DESC;
