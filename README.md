@@ -1,8 +1,6 @@
-<<<<<<< HEAD
 # RetailAssist FAQ Assistant
 =======
 # SupportAI
->>>>>>> supportai
 
 A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, retrieval-augmented generation (RAG), and Snowflake Cortex Search.
 
@@ -431,33 +429,12 @@ git push -u origin feature/<feature-name>
 
 Then open a pull request into `main`.
 
-## Final Project Status
-
-```text
-Core RAG architecture             DONE
-Policy FAQ corpus                 DONE
-Provider contracts                DONE
-Streamlit UI                      DONE
-Dynamic document upload           DONE
-PDF/DOCX/TXT/Markdown support     DONE
-Category detection                DONE
-Duplicate handling                DONE
-Snowflake document storage        DONE
-Chunk ingestion                   DONE
-Cortex Search integration         DONE
-Retrieval/source improvements     DONE
-Snowflake integration testing     DONE
-FAQ/manual validation             DONE
-Feature branch                    MERGED INTO MAIN
-README                            UPDATED
 ```
 
 ## Project Summary
 
-<<<<<<< HEAD
 RetailAssist demonstrates how a retail customer-support assistant can combine **RAG, policy-grounded generation, dynamic knowledge ingestion, and Snowflake** into a maintainable application architecture.
 =======
 SupportAI demonstrates how a retail customer-support assistant can combine **RAG, policy-grounded generation, dynamic knowledge ingestion, and Snowflake** into a maintainable application architecture.
->>>>>>> supportai
 
 The extended version moves beyond a fixed FAQ dataset: new supported policy documents can be uploaded through the application, persisted in Snowflake, processed into retrieval chunks, and incorporated into the knowledge base while keeping the core RAG orchestration independent of Snowflake-specific implementation details.
