@@ -1,5 +1,3 @@
-# RetailAssist FAQ Assistant
-=======
 # SupportAI
 
 A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, retrieval-augmented generation (RAG), and Snowflake Cortex Search.
