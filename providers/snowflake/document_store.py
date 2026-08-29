@@ -10,6 +10,7 @@ import time
 import uuid
 from typing import Any
 
+from docx import document
 from snowflake.snowpark import Session
 
 
@@ -35,6 +36,8 @@ STAGE_NAME = os.getenv(
 DOCUMENTS_TABLE = f"{DATABASE}.{SCHEMA}.DOCUMENTS"
 
 DOCUMENT_CONTENT_TABLE = f"{DATABASE}.{SCHEMA}.DOCUMENT_CONTENT"
+
+DOCUMENT_CHUNKS_TABLE = f"{DATABASE}.{SCHEMA}.DOCUMENT_CHUNKS"
 
 POLICY_CHUNKS_TABLE = f"{DATABASE}.{SCHEMA}.POLICY_CHUNKS"
 
@@ -1201,7 +1204,7 @@ Document preview:
 
         self.session.sql(
             f"""
-            DELETE FROM {POLICY_CHUNKS_TABLE}
+            DELETE FROM {DOCUMENT_CHUNKS_TABLE}
             WHERE DOCUMENT_ID = '{safe_id}'
             """
         ).collect()
@@ -1266,9 +1269,7 @@ Document preview:
         self._delete_existing_chunks(document_id)
 
         safe_id = self._sql_escape(document_id)
-
         safe_filename = self._sql_escape(filename)
-
         safe_category = self._sql_escape(category)
 
         inserted = 0
@@ -1277,7 +1278,6 @@ Document preview:
             chunk_id = f"{document_id}_CHUNK_{index + 1:05d}"
 
             safe_chunk_id = self._sql_escape(chunk_id)
-
             safe_chunk = self._sql_escape(chunk["chunk_text"])
 
             page_index = int(
@@ -1305,7 +1305,7 @@ Document preview:
 
             self.session.sql(
                 f"""
-                INSERT INTO {POLICY_CHUNKS_TABLE} (
+                INSERT INTO {DOCUMENT_CHUNKS_TABLE} (
                     CHUNK_ID,
                     DOCUMENT_ID,
                     DOCUMENT_NAME,
@@ -1313,10 +1313,10 @@ Document preview:
                     CHUNK_INDEX,
                     CHUNK_TEXT,
                     CHUNK_LENGTH,
-                    PAGE_INDEX,
-                    PAGE_NUMBER,
-                    SECTION_HEADING,
-                    SOURCE_TYPE,
+                    SOURCE_PAGE_INDEX,
+                    SOURCE_PAGE_NUMBER,
+                    SECTION,
+                    UPLOAD_SOURCE,
                     ACTIVE
                 )
                 VALUES (
@@ -2002,11 +2002,21 @@ Document preview:
         if not document:
             raise ValueError(f"Document not found: {document_id}")
 
-        if not document.get(
-            "ACTIVE",
-            False,
-        ):
-            raise ValueError("Cannot retry an inactive document.")
+        # Retry is allowed for inactive/deleted documents.
+        # Reactivate the document before rebuilding its searchable content.
+        if not document.get("ACTIVE", False):
+            self._update_document_status(
+                document_id,
+                "PARSING",
+                active=True,
+                error_message=None,
+            )
+        else:
+            self._update_document_status(
+                document_id,
+                "PARSING",
+                error_message=None,
+            )
 
         staged_path = document.get("STAGED_FILE_PATH")
 
@@ -2040,17 +2050,19 @@ Document preview:
                 rows = self.session.sql(
                     f"""
                     SELECT CONTENT
-                    FROM {POLICY_SOURCES_TABLE}
+                    FROM {DOCUMENT_CONTENT_TABLE}
                     WHERE DOCUMENT_ID =
                         '{self._sql_escape(document_id)}'
-                    LIMIT 1
+                    ORDER BY PAGE_INDEX
                     """
                 ).collect()
 
                 if not rows:
                     raise ValueError("No stored text exists for retry.")
 
-                content = self._clean_text(str(rows[0]["CONTENT"] or ""))
+                content = self._clean_text(
+                    "\n\n".join(str(row["CONTENT"] or "") for row in rows)
+                )
 
                 pages = [
                     {
@@ -2201,22 +2213,15 @@ Document preview:
         document_id: str,
     ) -> int:
         """
-        Rebuild chunks for an existing document.
+        Rebuild searchable chunks for an existing document.
 
-        This deliberately reuses the staged binary rather than
-        requiring the user to upload the file again.
+        Re-indexing is allowed for inactive/deleted documents. The document
+        is reactivated and rebuilt from its retained content/staged file.
         """
-
         document = self.get_document(document_id)
 
         if not document:
             raise ValueError(f"Document not found: {document_id}")
-
-        if not document.get(
-            "ACTIVE",
-            False,
-        ):
-            raise ValueError("Cannot re-index an inactive document.")
 
         return self.retry_document(document_id)
 
@@ -2245,28 +2250,6 @@ Document preview:
             "DELETED",
             active=False,
         )
-
-        # ----------------------------------------------------
-        # Remove chunks from the searchable table.
-        # ----------------------------------------------------
-
-        self.session.sql(
-            f"""
-            DELETE FROM {POLICY_CHUNKS_TABLE}
-            WHERE DOCUMENT_ID = '{safe_id}'
-            """
-        ).collect()
-
-        # ----------------------------------------------------
-        # Remove extracted content.
-        # ----------------------------------------------------
-
-        self.session.sql(
-            f"""
-            DELETE FROM {DOCUMENT_CONTENT_TABLE}
-            WHERE DOCUMENT_ID = '{safe_id}'
-            """
-        ).collect()
 
         # ----------------------------------------------------
         # Keep POLICY_SOURCES inactive-compatible.

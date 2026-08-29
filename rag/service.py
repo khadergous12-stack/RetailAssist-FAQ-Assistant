@@ -241,6 +241,17 @@ class RAGService:
             r"\bcovered\b",
             r"\ballowed\b",
         ),
+        "limit": (
+            r"\bmaximum\b",
+            r"\bminimum\b",
+            r"\blimit\b",
+            r"\blimits\b",
+            r"\bmax(?:imum)?\b",
+            r"\bhow large\b",
+            r"\bhow many files\b",
+            r"\bfile size\b",
+            r"\bsize limit\b",
+        ),
     }
 
     def __init__(self, retriever: Retriever, generator: Generator):
@@ -389,50 +400,95 @@ class RAGService:
     @classmethod
     def _candidate_intents(cls, chunk: RetrievedChunk) -> set[str]:
         question = cls._extract_question(chunk.chunk_text)
+
         if question:
             return cls._intents(question)
 
-        # Uploaded policy sections often contain several sentences.  The
-        # section heading should carry most of the intent signal; then add
-        # only explicit answer-type phrases from the body.  This prevents a
-        # standard-shipping section from becoming a "tracking" section just
-        # because it says the order is "delivered".
+        # Uploaded policy sections can contain several sentences.
+        # Use the heading first, then add explicit answer-type signals
+        # from the body.
         heading = chunk.section_heading or ""
         intents = cls._intents(heading)
         body = str(chunk.chunk_text or "").lower()
 
         if re.search(
-            r"\bwithin\s+\d+(?:\s*[–-]\s*\d+)?\s+(?:business\s+)?days?\b", body
+            r"\bwithin\s+\d+(?:\s*[–-]\s*\d+)?\s+(?:business\s+)?days?\b",
+            body,
         ):
             intents.add("duration")
         elif re.search(
-            r"\b\d+(?:\s*[–-]\s*\d+)?\s+(?:business\s+)?days?\s+after\b", body
+            r"\b\d+(?:\s*[–-]\s*\d+)?\s+(?:business\s+)?days?\s+after\b",
+            body,
         ):
             intents.add("duration")
+
         if re.search(
-            r"\btracking\b|\btracking number\b|tracking shows delivered|\btrack the order\b",
+            r"\btracking\b"
+            r"|\btracking number\b"
+            r"|tracking shows delivered"
+            r"|\btrack the order\b",
             body,
         ):
             intents.add("tracking")
+
         if re.search(
-            r"\bdamage\w*\b|\bbroken\b|\bcrack\w*\b|\bleak\w*\b|\bdefect\w*\b|\bunusable\b",
+            r"\bdamage\w*\b"
+            r"|\bbroken\b"
+            r"|\bcrack\w*\b"
+            r"|\bleak\w*\b"
+            r"|\bdefect\w*\b"
+            r"|\bunusable\b",
             body,
         ):
             intents.add("damage")
+
         if re.search(
-            r"\breturn\w*\b|\bsend(?:ing)?\s+(?:it|the product|the item)?\s*back\b",
+            r"\breturn\w*\b"
+            r"|\bsend(?:ing)?\s+(?:it|the product|the item)?\s*back\b",
             body,
         ):
             intents.add("return")
+
         if re.search(
-            r"\bkeep the packaging\b|\bcontact support\b|\bwhat should i do\b|\bhow do i\b",
+            r"\bkeep the packaging\b"
+            r"|\bcontact support\b"
+            r"|\bwhat should i do\b"
+            r"|\bwhat do i do\b"
+            r"|\bhow do i\b",
             body,
         ):
             intents.add("procedure")
-        if re.search(r"\bcost\w*\b|\bfee\w*\b|\bwho pays\b|\bshipping cost\b", body):
+
+        if re.search(
+            r"\bcost\w*\b"
+            r"|\bfee\w*\b"
+            r"|\bwho pays\b"
+            r"|\bshipping cost\b",
+            body,
+        ):
             intents.add("cost")
-        if re.search(r"\brefund\w*\b|\bcredit\b", body):
+
+        if re.search(
+            r"\brefund\w*\b"
+            r"|\bcredit\b",
+            body,
+        ):
             intents.add("refund")
+
+        # Upload/document limit questions.
+        if re.search(
+            r"\bmaximum file size\b"
+            r"|\bfile size\b"
+            r"|\bsize limit\b"
+            r"|\bupload limit\b"
+            r"|\bupload restrictions?\b"
+            r"|\bmaximum\b"
+            r"|\b\d+\s*mb\b"
+            r"|\bfiles?\s+per\s+upload\b",
+            body,
+        ):
+            intents.add("limit")
+
         return intents
 
     @classmethod
@@ -473,7 +529,7 @@ class RAGService:
             score -= 7.0
 
         # Duration, tracking, refund and cost are distinct answer types.
-        exclusive = ("duration", "tracking", "refund", "cost")
+        exclusive = ("duration", "tracking", "refund", "cost", "limit")
         for intent in exclusive:
             if intent in query_intents and intent not in candidate_intents:
                 score -= 4.0
@@ -516,6 +572,11 @@ class RAGService:
         context_overlap = query_words & context_words
 
         score = 0.0
+
+        # Prefer uploaded documents when they provide relevant evidence.
+        # Built-in FAQs remain available as fallback.
+        if cls._is_uploaded(chunk):
+            score += 5.0
 
         # Explicit variant mismatch is a hard semantic distinction.
         # Example: an express question must not fall back to a standard
@@ -580,6 +641,11 @@ class RAGService:
             "accident",
             "cancel",
             "cancellation",
+            "size",
+            "limit",
+            "maximum",
+            "upload",
+            "file",
         }
         query_distinctive = query_words & distinctive
         if query_distinctive:
@@ -798,19 +864,65 @@ class RAGService:
         # --------------------------------------------------------------
         # Keep a small amount of supporting evidence
         # --------------------------------------------------------------
-        selected = [best_chunk]
+        selected = []
 
-        # Add closely related supporting chunks only when they are genuinely
-        # close to the best result. This prevents unrelated FAQ sections from
-        # being passed to the generator.
-        for score, _, chunk in scored[1:]:
-            if len(selected) >= 3:
-                break
+        # --------------------------------------------------------------
+        # Compound-intent evidence selection
+        # --------------------------------------------------------------
+        # For questions containing multiple answer requirements, preserve
+        # evidence for different intents instead of selecting several chunks
+        # that all answer the same aspect.
+        #
+        # Example:
+        #   "What are the conditions for returning a product, and what steps
+        #    do I need to follow?"
+        #
+        # should retain both:
+        #   - return/eligibility evidence
+        #   - procedure evidence
+        # --------------------------------------------------------------
 
-            if score < best_score - 5.0:
+        def add_chunk(chunk):
+            if chunk in selected:
+                return
+            if len(selected) < cls.MAX_EVIDENCE:
+                selected.append(chunk)
+
+        # First pass: satisfy explicit query intents.
+        for intent in (
+            "procedure",
+            "eligibility",
+            "return",
+            "damage",
+            "duration",
+            "tracking",
+            "refund",
+            "cost",
+            "limit",
+        ):
+            if intent not in query_intents:
                 continue
 
-            selected.append(chunk)
+            for score, _, chunk in scored:
+                candidate_intents = cls._candidate_intents(chunk)
+
+                if intent in candidate_intents:
+                    add_chunk(chunk)
+                    break
+
+            if len(selected) >= cls.MAX_EVIDENCE:
+                break
+
+        # Second pass: fill remaining slots with strongest evidence.
+        if len(selected) < cls.MAX_EVIDENCE:
+            for score, _, chunk in scored:
+                if score < best_score - 5.0:
+                    continue
+
+                add_chunk(chunk)
+
+                if len(selected) >= cls.MAX_EVIDENCE:
+                    break
 
         return selected
 

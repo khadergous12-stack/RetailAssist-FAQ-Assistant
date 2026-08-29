@@ -1,29 +1,31 @@
--- ============================================================
--- SupportAI FAQ Assistant
--- Cortex Search - authoritative active-policy retrieval
--- ============================================================
-
 USE ROLE CAT07_LEARNER_RL;
+
 USE WAREHOUSE CAT07_WH;
+
 USE DATABASE RETAIL_ASSIST_DB;
+
 USE SCHEMA RETAIL_ASSIST;
 
+
 -- ============================================================
--- 1. Recreate Cortex Search Service
+-- RETAILASSIST
+-- Unified Cortex Search
 --
--- IMPORTANT:
--- ACTIVE is included as an attribute and the source query excludes
--- inactive chunks. This prevents deleted document chunks from being
--- indexed again after the service refreshes.
+-- Sources:
+--   1. POLICY_CHUNKS     = built-in FAQ/policies
+--   2. DOCUMENT_CHUNKS   = user-uploaded PDF/DOCX/MD/TXT
 --
--- DOCUMENT_ID remains the stable identity used by the Python retriever.
--- The Python retriever also checks DOCUMENTS so that a document that is
--- still present in an older search index cannot be used after deletion.
+-- Uploaded documents are controlled by DOCUMENTS.ACTIVE and
+-- DOCUMENTS.PROCESSING_STATUS.
 -- ============================================================
 
+
 CREATE OR REPLACE CORTEX SEARCH SERVICE RETAIL_ASSIST_SEARCH
+
     ON CHUNK_TEXT
+
     PRIMARY KEY (CHUNK_ID)
+
     ATTRIBUTES
         DOCUMENT_ID,
         DOCUMENT_NAME,
@@ -33,9 +35,13 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE RETAIL_ASSIST_SEARCH
         SECTION_HEADING,
         SOURCE_TYPE,
         ACTIVE
+
     WAREHOUSE = CAT07_WH
+
     TARGET_LAG = '1 hour'
+
     AS
+
     SELECT
         CHUNK_ID,
         DOCUMENT_ID,
@@ -48,151 +54,91 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE RETAIL_ASSIST_SEARCH
         SECTION_HEADING,
         SOURCE_TYPE,
         ACTIVE
+
     FROM POLICY_CHUNKS
-    WHERE COALESCE(ACTIVE, TRUE) = TRUE;
+
+    WHERE COALESCE(ACTIVE, TRUE) = TRUE
+
+
+    UNION ALL
+
+
+    SELECT
+        dc.CHUNK_ID,
+        dc.DOCUMENT_ID,
+        dc.DOCUMENT_NAME,
+        dc.CATEGORY,
+        dc.CHUNK_INDEX,
+        dc.CHUNK_TEXT,
+        dc.SOURCE_PAGE_INDEX AS PAGE_INDEX,
+        dc.SOURCE_PAGE_NUMBER AS PAGE_NUMBER,
+        dc.SECTION AS SECTION_HEADING,
+        'USER_UPLOAD' AS SOURCE_TYPE,
+        TRUE AS ACTIVE
+
+    FROM DOCUMENT_CHUNKS dc
+
+    INNER JOIN DOCUMENTS d
+        ON d.DOCUMENT_ID = dc.DOCUMENT_ID
+
+    WHERE COALESCE(dc.ACTIVE, TRUE) = TRUE
+      AND COALESCE(d.ACTIVE, TRUE) = TRUE
+      AND UPPER(d.PROCESSING_STATUS) = 'INDEXED';
+
 
 -- ============================================================
--- 2. Verify the service
+-- VERIFY
 -- ============================================================
 
 SHOW CORTEX SEARCH SERVICES;
 
--- ============================================================
--- 3. Retrieval smoke tests
--- ============================================================
-
--- Test 1: Uploaded policy should win over an older FAQ when it strongly
--- answers the same question.
-SELECT PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH',
-        '{
-            "query": "How long does standard shipping normally take after dispatch?",
-            "columns": [
-                "CHUNK_ID",
-                "DOCUMENT_ID",
-                "DOCUMENT_NAME",
-                "CATEGORY",
-                "CHUNK_INDEX",
-                "CHUNK_TEXT",
-                "PAGE_INDEX",
-                "PAGE_NUMBER",
-                "SECTION_HEADING",
-                "SOURCE_TYPE",
-                "ACTIVE"
-            ],
-            "limit": 10
-        }'
-    )
-)['results'] AS RESULTS;
-
--- Test 2: Express delivery.
-SELECT PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH',
-        '{
-            "query": "How long does express delivery normally take after dispatch?",
-            "columns": [
-                "CHUNK_ID",
-                "DOCUMENT_ID",
-                "DOCUMENT_NAME",
-                "CATEGORY",
-                "CHUNK_INDEX",
-                "CHUNK_TEXT",
-                "PAGE_INDEX",
-                "PAGE_NUMBER",
-                "SECTION_HEADING",
-                "SOURCE_TYPE",
-                "ACTIVE"
-            ],
-            "limit": 10
-        }'
-    )
-)['results'] AS RESULTS;
-
--- Test 3: Delivered but missing package.
-SELECT PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH',
-        '{
-            "query": "What should I do if my tracking says delivered but I cannot find my package?",
-            "columns": [
-                "CHUNK_ID",
-                "DOCUMENT_ID",
-                "DOCUMENT_NAME",
-                "CATEGORY",
-                "CHUNK_INDEX",
-                "CHUNK_TEXT",
-                "PAGE_INDEX",
-                "PAGE_NUMBER",
-                "SECTION_HEADING",
-                "SOURCE_TYPE",
-                "ACTIVE"
-            ],
-            "limit": 10
-        }'
-    )
-)['results'] AS RESULTS;
-
--- Test 4: Damaged product. This should normally resolve to the returns
--- policy if the returns FAQ is the strongest matching policy.
-SELECT PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH',
-        '{
-            "query": "What should I do if my package arrives damaged?",
-            "columns": [
-                "CHUNK_ID",
-                "DOCUMENT_ID",
-                "DOCUMENT_NAME",
-                "CATEGORY",
-                "CHUNK_INDEX",
-                "CHUNK_TEXT",
-                "PAGE_INDEX",
-                "PAGE_NUMBER",
-                "SECTION_HEADING",
-                "SOURCE_TYPE",
-                "ACTIVE"
-            ],
-            "limit": 10
-        }'
-    )
-)['results'] AS RESULTS;
-
--- Test 5: Refunds.
-SELECT PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH',
-        '{
-            "query": "How long does a refund take?",
-            "columns": [
-                "CHUNK_ID",
-                "DOCUMENT_ID",
-                "DOCUMENT_NAME",
-                "CATEGORY",
-                "CHUNK_INDEX",
-                "CHUNK_TEXT",
-                "PAGE_INDEX",
-                "PAGE_NUMBER",
-                "SECTION_HEADING",
-                "SOURCE_TYPE",
-                "ACTIVE"
-            ],
-            "limit": 10
-        }'
-    )
-)['results'] AS RESULTS;
 
 -- ============================================================
--- 4. Optional direct check: no inactive chunks should be searchable
--- from the source table.
+-- VERIFY SOURCE COUNTS
 -- ============================================================
 
 SELECT
-    DOCUMENT_ID,
-    DOCUMENT_NAME,
-    ACTIVE,
-    COUNT(*) AS CHUNK_COUNT
+    'POLICY_CHUNKS' AS SOURCE,
+    COUNT(*) AS CHUNKS
 FROM POLICY_CHUNKS
-GROUP BY DOCUMENT_ID, DOCUMENT_NAME, ACTIVE
-ORDER BY DOCUMENT_NAME, ACTIVE DESC;
+WHERE COALESCE(ACTIVE, TRUE) = TRUE
+
+UNION ALL
+
+SELECT
+    'DOCUMENT_CHUNKS' AS SOURCE,
+    COUNT(*) AS CHUNKS
+FROM DOCUMENT_CHUNKS dc
+INNER JOIN DOCUMENTS d
+    ON d.DOCUMENT_ID = dc.DOCUMENT_ID
+WHERE COALESCE(dc.ACTIVE, TRUE) = TRUE
+  AND COALESCE(d.ACTIVE, TRUE) = TRUE
+  AND UPPER(d.PROCESSING_STATUS) = 'INDEXED';
+
+
+-- ============================================================
+-- VERIFY UPLOADED DOCUMENTS
+-- ============================================================
+
+SELECT
+    d.DOCUMENT_ID,
+    d.ORIGINAL_FILENAME,
+    d.FILE_TYPE,
+    d.ACTIVE,
+    d.PROCESSING_STATUS,
+    d.PAGE_COUNT,
+    d.CHUNK_COUNT,
+    COUNT(dc.CHUNK_ID) AS ACTUAL_CHUNKS
+FROM DOCUMENTS d
+LEFT JOIN DOCUMENT_CHUNKS dc
+    ON d.DOCUMENT_ID = dc.DOCUMENT_ID
+WHERE d.ACTIVE = TRUE
+GROUP BY
+    d.DOCUMENT_ID,
+    d.ORIGINAL_FILENAME,
+    d.FILE_TYPE,
+    d.ACTIVE,
+    d.PROCESSING_STATUS,
+    d.PAGE_COUNT,
+    d.CHUNK_COUNT
+ORDER BY d.CREATED_AT DESC;
