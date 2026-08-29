@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-import os
-
-=======
 import logging
 import os
 
@@ -11,7 +7,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
->>>>>>> supportai
 from app.controller import RetailAssistController
 from rag.service import RAGService
 

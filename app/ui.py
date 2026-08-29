@@ -360,11 +360,7 @@ def extract_relevant_section(
 
 def inject_box_styles() -> None:
     """
-<<<<<<< HEAD
-    Inject professional, industry-style CSS for the RetailAssist interface.
-=======
     Inject professional, industry-style CSS for the SupportAI interface.
->>>>>>> supportai
     This function changes presentation only; application logic is unchanged.
     """
 
@@ -379,16 +375,10 @@ def inject_box_styles() -> None:
 
             .stApp {
                 background:
-<<<<<<< HEAD
-                    radial-gradient(circle at 8% 8%, rgba(99, 102, 241, 0.14), transparent 28%),
-                    radial-gradient(circle at 92% 18%, rgba(14, 165, 233, 0.12), transparent 30%),
-                    radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.08), transparent 34%),
-=======
                     radial-gradient(circle at 8% 8%, rgba(99, 102, 241, 0.18), transparent 28%),
                     radial-gradient(circle at 92% 18%, rgba(14, 165, 233, 0.16), transparent 30%),
                     radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.11), transparent 34%),
                     radial-gradient(circle at 75% 65%, rgba(255, 255, 255, 0.75), transparent 22%),
->>>>>>> supportai
                     linear-gradient(135deg, #eef4ff 0%, #f7f5ff 48%, #edf7fb 100%);
                 min-height: 100vh;
             }
@@ -443,14 +433,6 @@ def inject_box_styles() -> None:
             .ra-hero::after {
                 content: "";
                 position: absolute;
-<<<<<<< HEAD
-                width: 260px;
-                height: 260px;
-                right: -80px;
-                top: -120px;
-                border-radius: 50%;
-                background: rgba(255, 255, 255, 0.08);
-=======
                 width: 360px;
                 height: 360px;
                 right: -120px;
@@ -507,7 +489,6 @@ def inject_box_styles() -> None:
                 to {
                     transform: translate3d(-18px, 16px, 0) scale(1.06);
                 }
->>>>>>> supportai
             }
 
             .ra-brand-row {
@@ -901,11 +882,6 @@ def render_response(
         document_name = html.escape(str(chunk.document_name))
         category = html.escape(str(chunk.category))
         chunk_index = html.escape(str(chunk.chunk_index))
-<<<<<<< HEAD
-        safe_question = html.escape(source_question)
-        safe_text = html.escape(source_text).replace("\n", "<br>")
-
-=======
 
         page_number = getattr(chunk, "page_number", None)
         section_heading = getattr(chunk, "section_heading", None)
@@ -943,21 +919,13 @@ def render_response(
 
         source_metadata_html = "".join(metadata_parts)
 
->>>>>>> supportai
         source_html = (
             '<div class="ra-source-box">'
             '<div class="ra-source-top">'
             f'<span class="ra-source-number">SOURCE {source_number}</span>'
             f'<div class="ra-source-title">{document_name}</div>'
             "</div>"
-<<<<<<< HEAD
-            '<div class="ra-source-meta">'
-            f"Category <code>{category}</code>"
-            f'<span style="margin-left:10px;">Chunk <code>{chunk_index}</code></span>'
-            "</div>"
-=======
             f'<div class="ra-source-meta">{source_metadata_html}</div>'
->>>>>>> supportai
             f'<div class="ra-source-question">{safe_question}</div>'
             f'<div class="ra-source-text">{safe_text}</div>'
             "</div>"
@@ -966,16 +934,6 @@ def render_response(
         st.markdown(source_html, unsafe_allow_html=True)
 
 
-<<<<<<< HEAD
-def run_app(
-    controller: RetailAssistController,
-) -> None:
-    """Render the RetailAssist Streamlit application."""
-
-    st.set_page_config(
-        page_title="RetailAssist | FAQ Assistant",
-        page_icon="🛍️",
-=======
 def render_document_management(controller: RetailAssistController) -> None:
     """
     Render the document-management console.
@@ -1201,7 +1159,6 @@ def run_app(
     st.set_page_config(
         page_title="SupportAI | Customer Support Assistant",
         page_icon="✦",
->>>>>>> supportai
         layout="centered",
         initial_sidebar_state="collapsed",
     )
@@ -1218,21 +1175,12 @@ def run_app(
         """
         <div class="ra-hero">
             <div class="ra-brand-row">
-<<<<<<< HEAD
-                <div class="ra-brand-icon">🛍️</div>
-                <div>
-                    <div class="ra-brand-title">RetailAssist FAQ Assistant</div>
-                    <div class="ra-brand-subtitle">
-                        Grounded customer-support intelligence for retail policies.
-                        Ask a question and receive a concise answer backed by approved FAQ evidence.
-=======
                 <div class="ra-brand-icon">✦</div>
                 <div>
                     <div class="ra-brand-title">SupportAI</div>
                     <div class="ra-brand-subtitle">
                         AI-powered customer support grounded in trusted policy knowledge.
                         Ask a question and receive a concise answer backed by approved evidence.
->>>>>>> supportai
                     </div>
                 </div>
             </div><div class="ra-status-strip">
@@ -1284,11 +1232,6 @@ def run_app(
                 for uploaded_file in valid_files:
                     file_bytes = uploaded_file.getvalue()
 
-<<<<<<< HEAD
-                    document_id = generate_document_id(file_bytes)
-
-=======
->>>>>>> supportai
                     file_size_mb = len(file_bytes) / (1024 * 1024)
 
                     detected_category = "Detecting..."
@@ -1306,15 +1249,9 @@ def run_app(
                     st.write(
                         f"📄 **{uploaded_file.name}** "
                         f"• {file_size_mb:.2f} MB "
-<<<<<<< HEAD
-                        f"• `{document_id}` "
-                        f"• **Category: {detected_category}**"
-                    )
-=======
                         f"• **Category: {detected_category}**"
                     )
                     st.caption("Document ID will be assigned during upload.")
->>>>>>> supportai
 
                 if st.button(
                     "⬆️ Upload to Snowflake",
@@ -1330,21 +1267,10 @@ def run_app(
                         for uploaded_file in valid_files:
                             file_bytes = uploaded_file.getvalue()
 
-<<<<<<< HEAD
-                            document_id = generate_document_id(file_bytes)
-
-=======
->>>>>>> supportai
                             try:
                                 staged_path = controller.document_store.upload_to_stage(
                                     file_bytes=file_bytes,
                                     filename=uploaded_file.name,
-<<<<<<< HEAD
-                                    document_id=document_id,
-                                    category=None,
-                                )
-
-=======
                                     document_id=None,
                                     category=None,
                                 )
@@ -1359,7 +1285,6 @@ def run_app(
                                     else "Unknown"
                                 )
 
->>>>>>> supportai
                                 st.success(
                                     f"{uploaded_file.name} uploaded successfully."
                                 )
@@ -1381,15 +1306,12 @@ def run_app(
                             )
 
     # ---------------------------------------------------------
-<<<<<<< HEAD
-=======
     # Document management
     # ---------------------------------------------------------
 
     render_document_management(controller)
 
     # ---------------------------------------------------------
->>>>>>> supportai
     # Question area
     # ---------------------------------------------------------
 
@@ -1398,11 +1320,7 @@ def run_app(
         <div class="ra-section-label">Customer support</div>
         <div class="ra-section-title">Ask your policy question</div>
         <div class="ra-helper">
-<<<<<<< HEAD
-            Returns · Refunds · Shipping · Warranty · Payments
-=======
             Ask about any policy available in the knowledge base.
->>>>>>> supportai
         </div>
         """,
         unsafe_allow_html=True,
@@ -1424,11 +1342,7 @@ def run_app(
 
     with col1:
         ask_clicked = st.button(
-<<<<<<< HEAD
-            "🔎  Ask RetailAssist",
-=======
             "✦  Ask SupportAI",
->>>>>>> supportai
             type="primary",
             use_container_width=True,
         )
@@ -1458,11 +1372,7 @@ def run_app(
     st.markdown(
         """
         <div class="ra-footer">
-<<<<<<< HEAD
-            RetailAssist • Grounded answers from approved policy evidence
-=======
             SupportAI • Grounded answers from approved policy evidence
->>>>>>> supportai
         </div>
         """,
         unsafe_allow_html=True,
