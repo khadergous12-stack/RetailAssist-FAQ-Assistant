@@ -1,0 +1,65 @@
+provider,question_id,answerable,request_successful,source_correct,unsupported_handled,response_time_sec,correctness,groundedness,answer,error
+Snowflake Cortex,E001,true,true,true,,2.616,,,"Yes, you can return a product that arrived damaged. You have 30 calendar days from the delivery date to return it, and we will pay for the return shipping.",
+Snowflake Cortex,E002,true,true,true,,2.372,,,RetailAssist pays return shipping when the item arrived damaged.,
+Snowflake Cortex,E003,true,true,true,,2.545,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E004,true,true,true,,2.119,,,RetailAssist normally completes its refund processing within 3 business days after approval.,
+Snowflake Cortex,E005,true,true,true,,3.296,,,"If more than 7 business days have passed since RetailAssist marked the refund as submitted, the customer should first confirm the original payment account. Customer Support can then provide the refund reference and escalate the case to the Payments team if necessary.",
+Snowflake Cortex,E006,true,true,false,,2.713,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E007,true,true,true,,2.504,,,Standard delivery normally takes 3 to 5 business days after the order is shipped.,
+Snowflake Cortex,E008,true,true,false,,2.035,,,Contact support within 48 hours.,
+Snowflake Cortex,E009,true,true,true,,2.632,,,A package may be classified as lost when it remains undelivered for 7 business days after the estimated delivery date and the carrier cannot confirm a new delivery date.,
+Snowflake Cortex,E010,true,true,false,,3.398,,,"Yes, you can return a product that arrived damaged, including one that was damaged after arrival due to an accident, such as dropping it. You have 30 calendar days from the delivery date to initiate the return process.",
+Snowflake Cortex,E011,true,true,false,,2.831,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E012,true,true,false,,2.43,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E013,true,true,true,,3.421,,,A failed checkout can leave a temporary authorization on the account. This is because RetailAssist does not collect the authorization if the order was not successfully created. Most banks release unused authorizations within 3 to 7 business days.,
+Snowflake Cortex,E014,true,true,true,,3.343,,,"No, a single RetailAssist order cannot be split across two credit or debit cards.",
+Snowflake Cortex,E015,true,true,true,,2.887,,,"""I couldn't find a policy that answers that question.""",
+Snowflake Cortex,E016,false,true,false,true,3.005,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E017,true,true,true,,2.234,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E018,false,true,false,true,3.085,,,I couldn't find a policy that answers that question.,
+Snowflake Cortex,E019,true,true,true,,3.43,,,RetailAssist stores payment tokens rather than displaying the full card number to customer-service agents.,
+Snowflake Cortex,E020,true,true,false,,2.725,,,I couldn't find a policy that answers that question.,
+OpenRouter,E001,true,true,true,,16.062,,,"Yes, you can return a product that arrived broken. Products that arrive damaged, cracked, broken, leaking, or otherwise unusable may be returned within 30 calendar days of delivery. RetailAssist also pays the return-shipping cost for a confirmed damaged-on-arrival return.",
+OpenRouter,E002,true,true,true,,2.541,,,RetailAssist pays the return shipping when the item arrives damaged.,
+OpenRouter,E003,true,true,true,,3.445,,,User Safety: safe,
+OpenRouter,E004,true,true,true,,2.733,,,User Safety: safe,
+OpenRouter,E005,true,true,true,,6.271,,,"Since more than 7 business days have passed since your refund was submitted, you should first confirm the original payment account where the refund should be received. If the refund still doesn't appear after confirming this, our Customer Support team can provide you with a refund reference and escalate the case to the Payments team if necessary.",
+OpenRouter,E006,true,true,false,,1.133,,,I couldn't find a policy that answers that question.,
+OpenRouter,E007,true,true,true,,1.429,,,Standard delivery normally takes 3 to 5 business days after the order is shipped.,
+OpenRouter,E008,true,true,false,,14.54,,,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Role:** SupportAI, customer-support policy assistant
+   - **Rules:** 
+     - Answer ONLY from supplied POLICY EVIDENCE
+     - No general knowledge, inference, assumptions, or inventions
+     - No combining conflicting/unrelated policies
+     - Treat multiple chunks from same doc as same policy
+     - If evidence doesn't answer exactly: ""I couldn't find a policy that answers that question.""
+     - Concise, customer-friendly
+     - No mention of retrieval process, AI, Cortex, etc.
+   - **Policy Evidence Provided:**
+     - Document: supportai_shipping_policy.pdf
+     - Chunk ID: 470f7d1480d730b5_CHUNK_00003
+     - Section: 3. Tracking and Delivery Issues
+     - Text: 
+       ""# 3. Tracking and Delivery Issues
+       A tracking number may be provided once the carrier accepts the shipment.
+       If tracking shows delivered but the customer cannot locate the package, the customer should contact support within 48 hours.
+       For damaged packages, customers should keep the packaging and contact",
+OpenRouter,E009,true,true,true,,2.604,,,A shipment is treated as lost when it remains undelivered for **7 business days after the estimated delivery date** and the carrier cannot confirm a new delivery date. Customer Support must complete the carrier investigation before issuing a lost‑package resolution.,
+OpenRouter,E010,true,true,false,,3.106,,,"No. The returns policy covers products that arrive damaged (cracked, broken, or unusable) within 30 calendar days of delivery. Damage caused by dropping the device after receiving it is not covered under that policy.",
+OpenRouter,E011,true,true,false,,2.354,,,I couldn't find a policy that answers that question.,
+OpenRouter,E012,true,true,false,,1.336,,,I couldn't find a policy that answers that question.,
+OpenRouter,E013,true,true,true,,16.283,,,"A failed checkout can leave a temporary authorization on your card. If the order isn’t successfully created, RetailAssist doesn’t collect the authorization, and most banks release unused authorizations within 3 to 7 business days.",
+OpenRouter,E014,true,true,true,,11.678,,,No. A single order cannot be split across two credit or debit cards. You may use an eligible gift balance first and then pay the remaining amount with one supported payment method when the checkout flow offers that option.,
+OpenRouter,E015,true,true,true,,3.072,,,I couldn't find a policy that answers that question.,
+OpenRouter,E016,false,true,false,true,3.37,,,I couldn't find a policy that answers that question.,
+OpenRouter,E017,true,true,true,,1.861,,,I couldn't find a policy that answers that question.,
+OpenRouter,E018,false,true,false,true,3.064,,,"Based on the Warranty FAQ, the standard warranty covers defects in materials or workmanship under normal consumer use, but it explicitly does **not** cover accidental damage such as drops, liquid spills, misuse, unauthorized modification, or cosmetic damage that does not affect operation. 
+
+Theft is not listed among the covered items, nor is it specifically mentioned in the exclusion clause. Since the policy does not address theft directly, I cannot confirm coverage for it under the standard warranty.
+
+**Answer:** I couldn't find a policy that answers that question.",
+OpenRouter,E019,true,true,true,,3.271,,,"No, support agents cannot see your full card number. RetailAssist stores payment tokens rather than displaying the complete card number to customer-service agents.",
+OpenRouter,E020,true,true,false,,0.947,,,I couldn't find a policy that answers that question.,

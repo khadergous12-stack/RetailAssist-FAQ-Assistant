@@ -1,84 +1,341 @@
 # SupportAI
 
-A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, retrieval-augmented generation (RAG), and Snowflake Cortex Search.
+A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, Retrieval-Augmented Generation (RAG), and Snowflake Cortex Search.
 
-The project has been extended with **dynamic document upload and Snowflake-backed knowledge management**, allowing new PDF, DOCX, TXT, and Markdown documents to be uploaded from the Streamlit UI, categorized, stored in Snowflake, chunked for retrieval, and used as policy evidence without changing application code.
+The extended version adds **multi-provider generation** and **dynamic document management**. Users can upload PDF, DOCX, TXT, and Markdown documents through the Streamlit UI, store and process them in Snowflake, retrieve relevant evidence through the same Cortex Search service, and choose at runtime between **Snowflake Cortex** and **OpenRouter** for answer generation.
+
+---
 
 ## Key Features
 
 - Policy-grounded customer-support answers
 - Retrieval-Augmented Generation (RAG)
-- Snowflake document storage
-- Snowflake Cortex Search integration
+- Snowflake Cortex Search as the retrieval layer
 - Snowflake Cortex generation support
+- OpenRouter generation support through the OpenAI-compatible API
+- Runtime AI-provider selection from the Streamlit UI
 - Dynamic document upload from the Streamlit UI
 - PDF, DOCX, TXT, and Markdown document support
 - Automatic document category detection
 - Document metadata and chunk tracking
 - Duplicate document handling
+- Retry, re-index, delete, and refresh document-management actions
 - Relevant evidence/source display in the UI
+- Uploaded-document page/section metadata where available
 - Provider-neutral RAG architecture
+- Centralized configuration through `config/settings.py`
+- Graceful provider error handling
 - Local/demo mode for development and testing
-- Automated tests and manual FAQ validation
+- Automated tests and 20-question provider evaluation
 
-## Architecture
+---
+
+# Architecture
+
+The application keeps **retrieval independent from generation**.
 
 ```text
-                         ┌──────────────────────┐
-                         │     Streamlit UI     │
-                         │  Ask / Upload Docs   │
-                         └──────────┬───────────┘
-                                    │
-                         ┌──────────▼───────────┐
-                         │      Controller      │
-                         └──────────┬───────────┘
-                                    │
-                         ┌──────────▼───────────┐
-                         │      RAGService      │
-                         └──────────┬───────────┘
-                                    │
-                   ┌────────────────┴────────────────┐
-                   │                                 │
-          ┌────────▼────────┐               ┌────────▼────────┐
-          │    Retriever    │               │    Generator    │
-          │    Contract     │               │    Contract     │
-          └────────┬────────┘               └────────┬────────┘
-                   │                                 │
-          ┌────────▼────────┐               ┌────────▼────────┐
-          │ Snowflake       │               │ Snowflake       │
-          │ Retriever       │               │ Cortex          │
-          └────────┬────────┘               │ Generator       │
-                   │                        └─────────────────┘
-          ┌────────▼────────┐
-          │ Cortex Search   │
-          └────────┬────────┘
-                   │
-          ┌────────▼────────┐
-          │ Policy Chunks   │
-          └─────────────────┘
-
-Document Upload Flow
-
-User Upload
-    ↓
-PDF / DOCX / TXT / MD
-    ↓
-Document Validation
-    ↓
-Category Detection
-    ↓
-Duplicate Check
-    ↓
-Snowflake Document Storage
-    ↓
-Chunk Ingestion
-    ↓
-Cortex Search
-    ↓
-Available as RAG Evidence
+                         ┌────────────────────────┐
+                         │      Streamlit UI       │
+                         │  FAQ + Document Upload  │
+                         │    + AI Provider UI     │
+                         └────────────┬───────────┘
+                                      │
+                                      ▼
+                         ┌────────────────────────┐
+                         │      Controller         │
+                         │ RetailAssistController  │
+                         └────────────┬───────────┘
+                                      │
+                                      ▼
+                         ┌────────────────────────┐
+                         │       RAGService        │
+                         │ Provider-neutral RAG    │
+                         └────────────┬───────────┘
+                                      │
+                         ┌────────────┴────────────┐
+                         │                         │
+                         ▼                         ▼
+                ┌─────────────────┐       ┌─────────────────┐
+                │    Retriever    │       │    Generator    │
+                │     Contract    │       │     Contract    │
+                └────────┬────────┘       └────────┬────────┘
+                         │                         │
+                         ▼                         ▼
+                ┌─────────────────┐       ┌─────────────────┐
+                │ Snowflake       │       │ Provider Factory│
+                │ Cortex Search   │       └────────┬────────┘
+                └────────┬────────┘                │
+                         │                ┌─────────┴─────────┐
+                         │                │                   │
+                         ▼                ▼                   ▼
+                ┌─────────────────┐  Snowflake          OpenRouter
+                │ Final Evidence  │  Cortex             Generator
+                └────────┬────────┘  Generator
+                         │
+                         └──────────────┬───────────────────┘
+                                        ▼
+                              Grounded Prompt / Answer
 ```
 
-## Project Structure
+### Provider-selection flow
+
+```text
+User Question
+     ↓
+Snowflake Cortex Search
+     ↓
+RAG Evidence Filtering
+     ↓
+Same Retrieved Context
+     ├───────────────┐
+     ▼               ▼
+Snowflake Cortex   OpenRouter
+     │               │
+     └───────┬───────┘
+             ▼
+       Final Answer
+```
+
+**Important:** OpenRouter is a generation provider only. It does not replace Snowflake Cortex Search retrieval.
+
+---
+
+# Supported Generation Providers
+
+## 1. Snowflake Cortex
+
+The default provider uses the existing Snowflake-backed generation implementation.
+
+## 2. OpenRouter
+
+OpenRouter is used through its OpenAI-compatible API.
+
+The provider adapter lives under:
+
+```text
+providers/openai/generator.py
+```
+
+The adapter uses the OpenAI Python SDK with the OpenRouter API endpoint.
+
+---
+
+# Runtime Provider Selection
+
+The main Streamlit interface contains an **AI Provider** dropdown near the top of the page.
+
+```text
+AI Provider
+[ Snowflake Cortex ▼ ]
+```
+
+Available options:
+
+```text
+Snowflake Cortex
+OpenRouter
+```
+
+Changing the selection affects the **next generation request** without restarting the application.
+
+The active provider is shown with the response:
+
+```text
+Generated by: Snowflake Cortex
+```
+
+or:
+
+```text
+Generated by: OpenRouter
+```
+
+The retrieval path remains the same for both providers.
+
+---
+
+# Dynamic Document Management
+
+The application supports knowledge-base management through a dedicated **Document Management** tab.
+
+The main SupportAI tab contains:
+
+- FAQ interaction
+- Document upload
+- AI provider selection
+
+The Document Management tab contains:
+
+- Uploaded-document listing
+- Filtering
+- Metadata inspection
+- Retry
+- Re-index
+- Delete
+- Refresh
+
+This keeps the main FAQ experience focused while still providing administrative document controls.
+
+---
+
+# Supported Document Formats
+
+The dynamic upload feature accepts:
+
+| Format | Extension | Supported |
+|---|---|---|
+| Markdown | `.md` | Yes |
+| PDF | `.pdf` | Yes |
+| Microsoft Word | `.docx` | Yes |
+| Plain text | `.txt` | Yes |
+
+Uploaded documents are stored and processed through the Snowflake document pipeline and become available as retrieval evidence after successful indexing.
+
+---
+
+# Document Upload Flow
+
+```text
+User selects file
+        ↓
+Validate extension / size / empty file
+        ↓
+Create document metadata
+        ↓
+Store content in Snowflake
+        ↓
+Parse document content
+        ↓
+Create searchable chunks
+        ↓
+Store chunk metadata
+        ↓
+Refresh / wait for Cortex Search indexing
+        ↓
+Mark document indexed
+        ↓
+Available as RAG evidence
+```
+
+Supported documents are tracked using metadata such as:
+
+- Document ID
+- Original filename
+- Sanitized filename
+- File type
+- File size
+- Content hash
+- Category
+- Processing status
+- Page count
+- Character count
+- Chunk count
+- Active/deleted state
+- Created/updated timestamps
+- Error information
+
+---
+
+# Document Lifecycle
+
+Typical document states include:
+
+```text
+UPLOADED
+PARSING
+INDEXING
+INDEXED
+FAILED
+DELETED
+```
+
+Only active, indexed uploaded documents should participate in retrieval.
+
+Deleted documents are deactivated and excluded from the active Cortex Search source.
+
+---
+
+# RAG Pipeline
+
+SupportAI treats Cortex Search results as **candidates**, not automatically valid evidence.
+
+```text
+User Question
+     ↓
+Cortex Search Candidate Retrieval
+     ↓
+Question / Chunk Scoring
+     ↓
+Intent Filtering
+     ↓
+Variant Protection
+     ↓
+Evidence Selection
+     ↓
+Grounded Prompt
+     ↓
+Selected Generator
+     ↓
+Final Answer
+```
+
+The filtering layer considers signals such as:
+
+- lexical overlap
+- FAQ/section-heading relevance
+- query intent
+- candidate intent
+- distinctive terms
+- variant compatibility
+- retrieval score
+
+This helps avoid cases such as using standard-shipping evidence for an express-shipping question.
+
+---
+
+# Grounding and Refusal Behavior
+
+The assistant is designed to answer only from retrieved policy evidence.
+
+When sufficient evidence is unavailable, the application returns the configured refusal message:
+
+```text
+I couldn't find a policy that answers that question.
+```
+
+The system should not fabricate a policy answer from general knowledge.
+
+---
+
+# Evidence Display
+
+Responses can display supporting source information including:
+
+- Document name
+- Category
+- Chunk index
+- Section heading
+- Page number when available for uploaded PDF/DOCX documents
+
+For example:
+
+```text
+Generated by: OpenRouter
+
+Source:
+supportai_shipping_policy.pdf
+
+Page:
+2
+
+Section:
+2. Express Shipping
+```
+
+---
+
+# Project Structure
 
 ```text
 SupportAI/
@@ -90,15 +347,24 @@ SupportAI/
 │   ├── main.py
 │   └── ui.py
 │
+├── config/
+│   ├── __init__.py
+│   └── settings.py
+│
 ├── data/
 │   ├── payments_faq.md
 │   ├── refunds_faq.md
 │   ├── returns_faq.md
 │   ├── shipping_faq.md
 │   ├── warranty_faq.md
-│   └── evaluation_questions.csv
+│   ├── evaluation_questions.csv
+│   ├── provider_evaluation_results.csv
+│   └── provider_evaluation_summary.csv
 │
 ├── providers/
+│   ├── factory.py
+│   ├── openai/
+│   │   └── generator.py
 │   └── snowflake/
 │       ├── connection.py
 │       ├── document_store.py
@@ -111,6 +377,9 @@ SupportAI/
 │   └── service.py
 │
 ├── scripts/
+│   ├── evaluation_summary.py
+│   ├── evaluate_providers.py
+│   ├── retry_failed_openrouter.py
 │   └── generate_seed.py
 │
 ├── sql/
@@ -125,6 +394,7 @@ SupportAI/
 │   ├── test_contracts.py
 │   ├── test_evaluation.py
 │   ├── test_import_boundary.py
+│   ├── test_multi_provider.py
 │   ├── test_provider_selection.py
 │   ├── test_rag_service.py
 │   ├── test_snowflake_connection.py
@@ -135,111 +405,82 @@ SupportAI/
 ├── .env.example
 ├── .gitignore
 ├── README.md
-├── requirements.txt
-└── ...
+└── requirements.txt
 ```
 
-## Supported Document Formats
+---
 
-The dynamic upload feature accepts:
+# Snowflake Integration
 
-| Format | Supported |
-|---|---|
-| Markdown (`.md`) | Yes |
-| PDF (`.pdf`) | Yes |
-| DOCX (`.docx`) | Yes |
-| TXT (`.txt`) | Yes |
+Snowflake is used for persistent knowledge storage and retrieval.
 
-Uploaded documents are processed through the same knowledge pipeline and become available as retrieval evidence after ingestion.
+Main components include:
 
-## Dynamic Document Upload
-
-The Streamlit knowledge-base section allows an authorized user to upload new policy documents without modifying the source code.
-
-The upload pipeline performs:
-
-1. File type validation
-2. Document text extraction
-3. Category detection
-4. Duplicate document handling
-5. Snowflake document storage
-6. Policy chunk ingestion
-7. Retrieval availability through Cortex Search
-
-The existing application architecture remains provider-neutral; document persistence is isolated in the Snowflake provider layer.
-
-## Knowledge Base
-
-The original policy corpus contains five FAQ categories:
-
-```text
-PAYMENTS
-REFUNDS
-RETURNS
-SHIPPING
-WARRANTY
-```
-
-New documents can be added dynamically through the UI while preserving the same category and evidence model.
-
-## Snowflake Integration
-
-Snowflake is used for persistent policy storage and retrieval.
-
-The main Snowflake components are:
-
-- Snowflake connection/session management
-- Document storage
-- Policy source metadata
-- Policy chunk storage
-- Cortex Search retrieval
+- Snowflake session/connection management
+- Document metadata storage
+- Extracted document content
+- Uploaded document chunks
+- Policy source/chunk storage
+- Cortex Search
 - Snowflake Cortex generation
 
-### SQL Setup
-
-Run the required SQL scripts in the project-defined order:
+The active Cortex Search service is:
 
 ```text
-1. sql/foundation.sql
-2. sql/02_seed.sql
-3. sql/chunking.sql
-4. sql/documents.sql
-5. sql/search.sql
-6. sql/validation.sql
+RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH
 ```
 
-The exact order can be adjusted if your Snowflake environment already contains the foundation objects required by the document-upload flow.
+The Search service uses `POLICY_CHUNKS` as its source and excludes inactive rows.
 
-## Configuration
+---
+
+# Configuration
+
+Configuration is centralized in:
+
+```text
+config/settings.py
+```
 
 Create the local environment file:
-
-### Windows PowerShell
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Configure the required Snowflake values used by the application, for example:
+Example configuration:
 
-```text
-SNOWFLAKE_ACCOUNT
-SNOWFLAKE_USER
-SNOWFLAKE_PASSWORD
-SNOWFLAKE_WAREHOUSE
-SNOWFLAKE_DATABASE
-SNOWFLAKE_SCHEMA
-SNOWFLAKE_ROLE
-SNOWFLAKE_CORTEX_MODEL
+```env
+RETAIL_ASSIST_MODE=SNOWFLAKE
+RETAIL_ASSIST_LOG_LEVEL=INFO
+
+DEFAULT_AI_PROVIDER=snowflake
+
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=
+OPENROUTER_MAX_TOKENS=256
+OPENROUTER_TIMEOUT=60
 ```
 
-Use the authentication method implemented by `providers/snowflake/connection.py`.
+Snowflake variables are configured according to the existing Snowflake connection implementation.
 
-**Never commit `.env` or expose credentials in logs, screenshots, README files, or GitHub.**
+### Secrets
 
-## Installation
+Never commit:
 
-Use Python 3.11 or a version supported by the installed Snowflake dependencies.
+- OpenRouter API keys
+- Snowflake credentials
+- PATs
+- Access tokens
+- Other production secrets
+
+The repository should contain only safe placeholder values in `.env.example`.
+
+---
+
+# Installation
+
+Use a supported Python environment.
 
 ```powershell
 python -m venv .venv
@@ -248,7 +489,11 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Run the Application
+The project uses environment loading through `python-dotenv`.
+
+---
+
+# Run the Application
 
 From the project root:
 
@@ -259,189 +504,422 @@ streamlit run app/main.py
 
 The application provides:
 
-- Customer-support FAQ question input
-- Policy-grounded answer generation
-- Supporting evidence/source display
-- Dynamic knowledge-base document upload
-- Snowflake upload/integration workflow
+- FAQ question input
+- AI-provider selection
+- Policy-grounded responses
+- Supporting evidence
+- Dynamic document upload
+- Document management
 
-## Local Demo Mode
+---
 
-For local UI development without a live Snowflake/Cortex dependency:
+# Local Demo Mode
+
+For local UI development without a live Snowflake dependency:
 
 ```powershell
 $env:PYTHONPATH = "."
 streamlit run app/demo_main.py
 ```
 
-The demo uses the provider implementations intended for local testing.
+---
 
-## Testing
+# Testing
 
-Run the automated test suite from the project root:
+Run the full automated test suite:
 
 ```powershell
 $env:PYTHONPATH = "."
 python -m pytest -q
 ```
 
-The project was also manually tested against the FAQ questions and the dynamic document/Snowflake workflow.
+The multi-provider tests cover:
 
-### Validation Completed
+- Provider factory behavior
+- Unsupported provider handling
+- Missing configuration
+- Generator interface behavior
+- OpenRouter generation success
+- Provider API failure handling
+- RAG-service orchestration
 
-The final validation covered:
+External provider calls are mocked in unit tests so the test suite does not require live or paid provider calls.
 
-- Payment FAQ retrieval
-- Shipping FAQ retrieval
-- Refund FAQ retrieval
-- Return FAQ retrieval
-- Warranty FAQ retrieval
-- Unsupported-question/refusal behavior
-- Source relevance and evidence display
-- Duplicate-document handling
-- Dynamic document upload
-- Snowflake document ingestion
-- Snowflake retrieval integration
-- Cortex Search test document flow
+---
 
-All planned application tests for the current feature extension were completed successfully.
+# Evaluation
 
-## Retrieval and Grounding
-
-SupportAI is designed to answer only from retrieved policy evidence.
-
-The RAG flow is:
+The existing evaluation dataset contains 20 questions:
 
 ```text
-User Question
-     ↓
-Retriever
-     ↓
-Relevant Policy Chunks
-     ↓
-Grounded RAG Context
-     ↓
-Generator
-     ↓
-Policy-Grounded Answer
-     ↓
-Supporting Sources
+data/evaluation_questions.csv
 ```
 
-If sufficient policy evidence is not found, the application should avoid inventing an answer and return the configured unsupported-question response.
+Every question is evaluated against both:
 
-## Source Relevance
+1. Snowflake Cortex
+2. OpenRouter
 
-The retrieval layer includes relevance/source selection logic so that multiple documents containing similar FAQ wording do not unnecessarily dominate the displayed evidence.
+The evaluation retrieves and filters the evidence once and reuses the same final evidence context for both providers.
 
-This is especially important when the same policy question exists in different document formats or when legacy and newly uploaded documents contain overlapping content.
-
-The system tracks document identity and metadata so retrieval results can be associated with the correct uploaded source.
-
-## Security
-
-- Keep `.env` out of source control.
-- Never commit passwords, PATs, or Snowflake credentials.
-- Do not print complete environment configuration.
-- Use the minimum Snowflake role privileges required by the application.
-- Keep Snowflake-specific imports and logic inside `providers/snowflake/`.
-- Do not place secrets in screenshots or demo recordings.
-
-## Troubleshooting
-
-### `ModuleNotFoundError`
-
-Activate the virtual environment and reinstall dependencies:
+Run:
 
 ```powershell
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python scripts/evaluate_providers.py
 ```
 
-Set the project root on `PYTHONPATH`:
+Results are written to:
+
+```text
+data/provider_evaluation_results.csv
+```
+
+Generate the provider summary:
+
+```powershell
+python scripts/evaluation_summary.py
+```
+
+Summary output:
+
+```text
+data/provider_evaluation_summary.csv
+```
+
+---
+
+# Evaluation Results
+
+The current 20-question evaluation completed successfully for both providers.
+
+| Metric | Snowflake Cortex | OpenRouter |
+|---|---:|---:|
+| Questions evaluated | 20/20 | 20/20 |
+| Successful responses | 20/20 | 20/20 |
+| Source-correct retrievals | 12/20 | 12/20 |
+| Unsupported questions handled | 2/2 | 2/2 |
+| Average response time | 2.781s | 5.055s |
+
+### Evaluation interpretation
+
+The identical source-correct retrieval count reflects the architecture: both generators receive the same final retrieved context.
+
+The supplied evaluation dataset contains:
+
+```text
+id
+question
+expected_source
+answerable
+```
+
+but does not contain an `expected_answer` field.
+
+Therefore a numerical correctness/groundedness percentage is not automatically claimed from this dataset alone. Those dimensions require explicit review of each generated answer against the retrieved policy evidence.
+
+---
+
+# Evaluation Observations
+
+The evaluation exposed several useful retrieval-quality cases, including questions where the expected policy source was not selected by the final evidence filter.
+
+Examples included:
+
+```text
+E010 → expected Warranty FAQ
+E011 → expected Warranty FAQ
+E012 → expected Warranty FAQ
+E020 → expected Shipping FAQ
+```
+
+These results are retained as evaluation findings rather than removed to make the metrics look better.
+
+The evaluation also exposed provider-specific response-quality differences. For example, a provider response can be technically successful at the API level while still being unsuitable as a grounded answer. Such cases should be reviewed for correctness and groundedness rather than counted as successful solely because a non-empty string was returned.
+
+---
+
+# Provider Factory
+
+Provider creation is centralized in:
+
+```text
+providers/factory.py
+```
+
+The application requests a provider by name:
+
+```python
+generator = create_generator(
+    provider_name=provider_name,
+    session=session,
+    settings=settings,
+)
+```
+
+The factory then returns the appropriate implementation.
+
+This design means adding another generation provider should require changes primarily in:
+
+```text
+providers/<new_provider>/
+providers/factory.py
+```
+
+plus configuration, UI selection, tests, and evaluation wiring.
+
+---
+
+# Adding Another Provider
+
+A new provider should:
+
+1. Implement the existing `Generator` contract.
+2. Live inside the provider layer.
+3. Be registered in `providers/factory.py`.
+4. Receive credentials/settings through centralized configuration.
+5. Be added to the UI provider dropdown.
+6. Have mocked unit tests.
+7. Be added to the evaluation workflow.
+
+The provider should not introduce another retrieval system.
+
+---
+
+# Error Handling
+
+The application handles:
+
+- Unsupported provider values
+- Missing provider credentials
+- Missing provider model configuration
+- Provider authentication failures
+- Provider connection failures
+- Provider timeouts
+- Provider API failures
+- Empty provider responses
+- Retrieval failures
+- Invalid or insufficient evidence
+
+Provider errors are converted into user-facing messages rather than exposing raw API tracebacks.
+
+The selected provider remains available in the UI after a failed request so the user can retry or change providers.
+
+---
+
+# Security
+
+Security requirements include:
+
+- Credentials remain outside source control.
+- `.env` is excluded from Git.
+- `.env.example` contains placeholders only.
+- API keys are not printed in logs.
+- Snowflake credentials are not displayed in the UI.
+- Provider-specific secrets are loaded through configuration.
+- Snowflake-specific code remains inside the provider layer.
+- External provider calls are mocked in automated tests.
+
+---
+
+# Troubleshooting
+
+## `ModuleNotFoundError`
+
+Run from the project root and set:
 
 ```powershell
 $env:PYTHONPATH = "."
 ```
 
-### Snowflake authentication failure
+Then activate the virtual environment:
 
-Check the account, user, authentication method, warehouse, database, schema, role, and network policy.
+```powershell
+.venv\Scripts\Activate.ps1
+```
 
-### Cortex Search unavailable
+and reinstall dependencies:
 
-Verify that the Snowflake account/region provides Cortex Search and that the active role has access to the required service and underlying objects.
+```powershell
+pip install -r requirements.txt
+```
 
-### Uploaded document is not retrieved
+## OpenRouter configuration error
+
+Check:
+
+```text
+OPENROUTER_API_KEY
+OPENROUTER_MODEL
+OPENROUTER_MAX_TOKENS
+OPENROUTER_TIMEOUT
+```
+
+The current evaluation used:
+
+```text
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_MAX_TOKENS=256
+```
+
+for an account-compatible evaluation configuration.
+
+## OpenRouter API failure
+
+Check the provider configuration, account credits/model availability, and network connection.
+
+## Uploaded document not retrieved
 
 Debug in this order:
 
 ```text
 Upload
   ↓
-Text extraction
+Validation
   ↓
-Category/document metadata
+Content extraction
   ↓
-Snowflake storage
+Document metadata
   ↓
-Chunk ingestion
+Chunk creation
   ↓
 Cortex Search indexing
   ↓
 Retrieval
   ↓
-RAG response
+Evidence filtering
+  ↓
+Generation
 ```
 
-### Wrong or duplicate sources appear
+## Wrong source selected
 
-Check document IDs and chunk metadata first. Do not solve retrieval problems only by changing the generation prompt.
+Check:
 
-## Git Workflow
+- document IDs
+- active/inactive state
+- processing status
+- chunk metadata
+- Cortex Search results
+- evidence filtering
 
-The extended functionality was developed on a dedicated feature branch:
+Do not solve a retrieval problem only by modifying the generation prompt.
 
-```text
-feature/dynamic-document-upload
-```
+---
 
-After testing, the feature branch was merged into `main` through a GitHub pull request.
+# Git Workflow
 
-Recommended workflow for future changes:
+Use a dedicated feature branch for the extension:
 
 ```powershell
-git checkout -b feature/<feature-name>
-git add .
-git commit -m "feat: <description>"
-git push -u origin feature/<feature-name>
+git checkout -b feature/multi-provider-genai
 ```
 
-Then open a pull request into `main`.
+Commit changes:
 
-## Final Project Status
+```powershell
+git add .
+git commit -m "feat: complete multi-provider GenAI extension"
+```
+
+Push:
+
+```powershell
+git push -u origin feature/multi-provider-genai
+```
+
+After review and validation, merge the feature branch into the target branch according to the project's Git workflow.
+
+---
+
+# Recommended Final Validation
+
+Run these before merging:
+
+```powershell
+python -m pytest -q
+```
+
+```powershell
+git status
+```
+
+Verify that `.env` is not tracked:
+
+```powershell
+git ls-files .env
+```
+
+The final application validation should include:
 
 ```text
-Core RAG architecture             DONE
-Policy FAQ corpus                 DONE
-Provider contracts                DONE
-Streamlit UI                      DONE
-Dynamic document upload           DONE
-PDF/DOCX/TXT/Markdown support     DONE
-Category detection                DONE
-Duplicate handling                DONE
-Snowflake document storage        DONE
-Chunk ingestion                   DONE
-Cortex Search integration         DONE
-Retrieval/source improvements     DONE
-Snowflake integration testing     DONE
-FAQ/manual validation             DONE
-Feature branch                    MERGED INTO MAIN
-README                            UPDATED
+Snowflake Cortex generation       ✓
+OpenRouter generation             ✓
+Runtime provider switching        ✓
+Shared Cortex Search retrieval    ✓
+Grounded RAG evidence             ✓
+PDF upload                        ✓
+DOCX upload                       ✓
+TXT upload                        ✓
+Markdown upload                   ✓
+Document management tab           ✓
+Retry                             ✓
+Re-index                          ✓
+Delete                            ✓
+Provider error handling           ✓
+20-question evaluation            ✓
+Automated tests                   ✓
 ```
 
-## Project Summary
+---
 
-SupportAI demonstrates how a retail customer-support assistant can combine **RAG, policy-grounded generation, dynamic knowledge ingestion, and Snowflake** into a maintainable application architecture.
+# Known Limitations
 
-The extended version moves beyond a fixed FAQ dataset: new supported policy documents can be uploaded through the application, persisted in Snowflake, processed into retrieval chunks, and incorporated into the knowledge base while keeping the core RAG orchestration independent of Snowflake-specific implementation details.
+- OpenRouter response latency can vary by model and provider availability.
+- Free OpenRouter routing can select different underlying models over time.
+- The supplied evaluation dataset does not include expected answers, so correctness and groundedness require explicit review.
+- Retrieval-quality tuning is still possible for difficult or ambiguous questions.
+- Some questions may require additional intent/entity logic to select the exact expected policy.
+- Evaluation response times vary with external service conditions.
+
+---
+
+# Project Status
+
+```text
+Core RAG architecture             COMPLETE
+Snowflake Cortex Search           COMPLETE
+Snowflake Cortex generation       COMPLETE
+Provider contract                 COMPLETE
+Provider factory                  COMPLETE
+OpenRouter generation             COMPLETE
+Runtime provider switching        COMPLETE
+Centralized configuration         COMPLETE
+Graceful provider errors          COMPLETE
+Dynamic document upload            COMPLETE
+PDF support                       COMPLETE
+DOCX support                      COMPLETE
+TXT support                       COMPLETE
+Markdown support                  COMPLETE
+Document Management tab           COMPLETE
+Retry / Re-index / Delete         COMPLETE
+20-question evaluation            COMPLETE
+Automated multi-provider tests    COMPLETE
+README documentation              COMPLETE
+```
+
+---
+
+# Conclusion
+
+SupportAI demonstrates a practical enterprise-style support architecture where:
+
+- Snowflake Cortex Search remains the authoritative retrieval layer.
+- The RAG service remains provider-neutral.
+- Generation providers can be switched at runtime.
+- Uploaded knowledge documents can be managed dynamically.
+- Evidence is selected before generation.
+- Unsupported questions receive a controlled refusal.
+- Provider failures are handled without exposing raw exceptions.
+- The same retrieved context can be used to compare different generation providers.
+
+The result is a maintainable foundation for extending the assistant with additional generation providers without rebuilding the retrieval and document-management architecture.

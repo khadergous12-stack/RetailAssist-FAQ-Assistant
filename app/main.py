@@ -1,31 +1,37 @@
+from __future__ import annotations
+
 import logging
-import os
-
-
-logging.basicConfig(
-    level=os.environ.get("RETAIL_ASSIST_LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
 
 from app.controller import RetailAssistController
 from rag.service import RAGService
+from config.settings import load_settings
+
+
+logging.basicConfig(
+    level=load_settings().log_level,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 
 def create_controller() -> RetailAssistController:
     """
-    Create RetailAssist using Snowflake Cortex.
+    Create the RetailAssist application.
+
+    Snowflake Cortex Search remains the retrieval layer.
+    The initial generation provider is selected through centralized settings
+    and created by the provider factory.
     """
 
-    mode = os.environ.get(
-        "RETAIL_ASSIST_MODE",
-        "SNOWFLAKE",
-    ).upper()
+    settings = load_settings()
+
+    mode = settings.retail_assist_mode
 
     document_store = None
+    session = None
 
     if mode == "SNOWFLAKE":
+        from providers.factory import create_generator
         from providers.snowflake.connection import create_snowflake_session
-        from providers.snowflake.generator import SnowflakeGenerator
         from providers.snowflake.retriever import SnowflakeRetriever
         from providers.snowflake.document_store import DocumentStore
 
@@ -35,8 +41,10 @@ def create_controller() -> RetailAssistController:
             session=session,
         )
 
-        generator = SnowflakeGenerator(
+        generator = create_generator(
+            provider_name=settings.default_ai_provider,
             session=session,
+            settings=settings,
         )
 
         document_store = DocumentStore(
@@ -60,6 +68,7 @@ def create_controller() -> RetailAssistController:
     return RetailAssistController(
         rag_service=rag_service,
         document_store=document_store,
+        session=session,
     )
 
 

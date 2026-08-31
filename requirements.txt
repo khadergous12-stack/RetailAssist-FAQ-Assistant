@@ -8,3 +8,4 @@ python-docx
 pymupdf
 pytesseract
 Pillow
+openai

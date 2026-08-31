@@ -1,0 +1,45 @@
+id,question,expected_source,answerable,retrieved_sources,snowflake_answer,snowflake_error,snowflake_response_time_sec,openrouter_answer,openrouter_error,openrouter_response_time_sec
+E001,My product arrived broken. Can I send it back?,Returns FAQ,true,returns_faq.md,"Yes, you can return a product that arrived damaged. You have 30 calendar days from the delivery date to return it, and we will pay for the return shipping.",,2.616,"Yes, you can return a product that arrived broken. Products that arrive damaged, cracked, broken, leaking, or otherwise unusable may be returned within 30 calendar days of delivery. RetailAssist also pays the return-shipping cost for a confirmed damaged-on-arrival return.",,16.062
+E002,Who pays the postage if the item was damaged when delivered?,Returns FAQ,true,returns_faq.md,RetailAssist pays return shipping when the item arrived damaged.,,2.372,RetailAssist pays the return shipping when the item arrives damaged.,,2.541
+E003,Can I return an engraved product because I changed my mind?,Returns FAQ,true,returns_faq.md; return_policy.md,I couldn't find a policy that answers that question.,,2.545,User Safety: safe,,3.445
+E004,How quickly does RetailAssist process an approved refund?,Refunds FAQ,true,supportai_refund_policy.pdf; refunds_faq.md,RetailAssist normally completes its refund processing within 3 business days after approval.,,2.119,User Safety: safe,,2.733
+E005,My refund was submitted eight business days ago. What should I do?,Refunds FAQ,true,supportai_refund_policy.pdf; refunds_faq.md,"If more than 7 business days have passed since RetailAssist marked the refund as submitted, the customer should first confirm the original payment account. Customer Support can then provide the refund reference and escalate the case to the Payments team if necessary.",,3.296,"Since more than 7 business days have passed since your refund was submitted, you should first confirm the original payment account where the refund should be received. If the refund still doesn't appear after confirming this, our Customer Support team can provide you with a refund reference and escalate the case to the Payments team if necessary.",,6.271
+E006,Will my express delivery fee always be refunded?,Refunds FAQ,true,supportai_shipping_policy.pdf,I couldn't find a policy that answers that question.,,2.713,I couldn't find a policy that answers that question.,,1.133
+E007,How many business days does ordinary delivery take?,Shipping FAQ,true,Shipping FAQ,Standard delivery normally takes 3 to 5 business days after the order is shipped.,,2.504,Standard delivery normally takes 3 to 5 business days after the order is shipped.,,1.429
+E008,Tracking says delivered but there is no parcel. What should I do?,Shipping FAQ,true,supportai_shipping_policy.pdf,Contact support within 48 hours.,,2.035,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Role:** SupportAI, customer-support policy assistant
+   - **Rules:** 
+     - Answer ONLY from supplied POLICY EVIDENCE
+     - No general knowledge, inference, assumptions, or inventions
+     - No combining conflicting/unrelated policies
+     - Treat multiple chunks from same doc as same policy
+     - If evidence doesn't answer exactly: ""I couldn't find a policy that answers that question.""
+     - Concise, customer-friendly
+     - No mention of retrieval process, AI, Cortex, etc.
+   - **Policy Evidence Provided:**
+     - Document: supportai_shipping_policy.pdf
+     - Chunk ID: 470f7d1480d730b5_CHUNK_00003
+     - Section: 3. Tracking and Delivery Issues
+     - Text: 
+       ""# 3. Tracking and Delivery Issues
+       A tracking number may be provided once the carrier accepts the shipment.
+       If tracking shows delivered but the customer cannot locate the package, the customer should contact support within 48 hours.
+       For damaged packages, customers should keep the packaging and contact",,14.54
+E009,When do you officially treat a shipment as lost?,Shipping FAQ,true,Shipping FAQ; returns_faq.md; refunds_faq.md,A package may be classified as lost when it remains undelivered for 7 business days after the estimated delivery date and the carrier cannot confirm a new delivery date.,,2.632,A shipment is treated as lost when it remains undelivered for **7 business days after the estimated delivery date** and the carrier cannot confirm a new delivery date. Customer Support must complete the carrier investigation before issuing a lost‑package resolution.,,2.604
+E010,I dropped my device and cracked it. Is that covered?,Warranty FAQ,true,returns_faq.md,"Yes, you can return a product that arrived damaged, including one that was damaged after arrival due to an accident, such as dropping it. You have 30 calendar days from the delivery date to initiate the return process.",,3.398,"No. The returns policy covers products that arrive damaged (cracked, broken, or unusable) within 30 calendar days of delivery. Damage caused by dropping the device after receiving it is not covered under that policy.",,3.106
+E011,How long is the normal warranty?,Warranty FAQ,true,return_policy.md; refunds_faq.md,I couldn't find a policy that answers that question.,,2.831,I couldn't find a policy that answers that question.,,2.354
+E012,How long is the warranty on a replacement item?,Warranty FAQ,true,return_policy.md; refunds_faq.md; Shipping FAQ,I couldn't find a policy that answers that question.,,2.43,I couldn't find a policy that answers that question.,,1.336
+E013,Why is there a pending card charge even though checkout failed?,Payments FAQ,true,payments_faq.md,A failed checkout can leave a temporary authorization on the account. This is because RetailAssist does not collect the authorization if the order was not successfully created. Most banks release unused authorizations within 3 to 7 business days.,,3.421,"A failed checkout can leave a temporary authorization on your card. If the order isn’t successfully created, RetailAssist doesn’t collect the authorization, and most banks release unused authorizations within 3 to 7 business days.",,16.283
+E014,Can I pay half with one card and half with another?,Payments FAQ,true,payments_faq.md,"No, a single RetailAssist order cannot be split across two credit or debit cards.",,3.343,No. A single order cannot be split across two credit or debit cards. You may use an eligible gift balance first and then pay the remaining amount with one supported payment method when the checkout flow offers that option.,,11.678
+E015,Do you accept Bitcoin?,Payments FAQ,true,payments_faq.md,"""I couldn't find a policy that answers that question.""",,2.887,I couldn't find a policy that answers that question.,,3.072
+E016,Do you offer same-day drone delivery?,NONE,false,supportai_shipping_policy.pdf; Shipping FAQ,I couldn't find a policy that answers that question.,,3.005,I couldn't find a policy that answers that question.,,3.37
+E017,Can I return a product after five years?,Returns FAQ,true,returns_faq.md; return_policy.md,I couldn't find a policy that answers that question.,,2.234,I couldn't find a policy that answers that question.,,1.861
+E018,Does the warranty cover theft?,NONE,false,Warranty FAQ,I couldn't find a policy that answers that question.,,3.085,"Based on the Warranty FAQ, the standard warranty covers defects in materials or workmanship under normal consumer use, but it explicitly does **not** cover accidental damage such as drops, liquid spills, misuse, unauthorized modification, or cosmetic damage that does not affect operation. 
+
+Theft is not listed among the covered items, nor is it specifically mentioned in the exclusion clause. Since the policy does not address theft directly, I cannot confirm coverage for it under the standard warranty.
+
+**Answer:** I couldn't find a policy that answers that question.",,3.064
+E019,Can support agents see my entire card number?,Payments FAQ,true,payments_faq.md,RetailAssist stores payment tokens rather than displaying the full card number to customer-service agents.,,3.43,"No, support agents cannot see your full card number. RetailAssist stores payment tokens rather than displaying the complete card number to customer-service agents.",,3.271
+E020,Can I change the shipping address once the parcel is already on the truck?,Shipping FAQ,true,membership.txt,I couldn't find a policy that answers that question.,,2.725,I couldn't find a policy that answers that question.,,0.947
