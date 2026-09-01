@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import re
+import time
 from difflib import SequenceMatcher
 
 from rag.contracts import Generator, RetrievedChunk, Retriever
 from rag.prompts import REFUSAL_MESSAGE, SYSTEM_PROMPT, build_grounded_prompt
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -263,25 +268,192 @@ class RAGService:
     # ------------------------------------------------------------------
 
     def answer(self, question: str, top_k: int = 5) -> RAGResponse:
+        """
+        Execute the complete grounded RAG workflow with diagnostic logging.
+
+        Logging records timing and pipeline state so slow or failed requests
+        can be traced to retrieval, evidence filtering, or generation.
+        Customer question text and prompt contents are intentionally not logged.
+        """
         if not question or not question.strip():
+            logger.warning("RAG request rejected: question is empty.")
             raise ValueError("Question cannot be empty.")
 
         question = question.strip()
-        retrieved = self.retriever.retrieve(query=question, top_k=top_k)
+        pipeline_start = time.perf_counter()
+
+        logger.info(
+            "RAG request started | top_k=%s | question_length=%s",
+            top_k,
+            len(question),
+        )
+
+        # --------------------------------------------------------------
+        # Retrieval
+        # --------------------------------------------------------------
+        retrieval_start = time.perf_counter()
+        logger.info("RAG retrieval started.")
+
+        try:
+            retrieved = self.retriever.retrieve(
+                query=question,
+                top_k=top_k,
+            )
+        except Exception:
+            retrieval_elapsed = time.perf_counter() - retrieval_start
+            logger.exception(
+                "RAG retrieval failed | duration=%.3fs",
+                retrieval_elapsed,
+            )
+            raise
+
+        retrieval_elapsed = time.perf_counter() - retrieval_start
+
+        logger.info(
+            "RAG retrieval completed | candidates=%s | duration=%.3fs",
+            len(retrieved),
+            retrieval_elapsed,
+        )
+
+        if retrieval_elapsed >= 10.0:
+            logger.warning(
+                "Slow retrieval detected | duration=%.3fs",
+                retrieval_elapsed,
+            )
 
         if not retrieved:
+            logger.warning("RAG retrieval returned no candidates; returning refusal.")
+            total_elapsed = time.perf_counter() - pipeline_start
+            logger.info(
+                "RAG request completed with refusal | duration=%.3fs",
+                total_elapsed,
+            )
             return self._refusal_response()
 
-        evidence = self._filter_evidence(question, retrieved)
+        # --------------------------------------------------------------
+        # Evidence filtering
+        # --------------------------------------------------------------
+        filtering_start = time.perf_counter()
+
+        logger.info(
+            "Evidence filtering started | candidates=%s",
+            len(retrieved),
+        )
+
+        try:
+            evidence = self._filter_evidence(question, retrieved)
+        except Exception:
+            filtering_elapsed = time.perf_counter() - filtering_start
+            logger.exception(
+                "Evidence filtering failed | duration=%.3fs",
+                filtering_elapsed,
+            )
+            raise
+
+        filtering_elapsed = time.perf_counter() - filtering_start
+
+        logger.info(
+            "Evidence filtering completed | accepted=%s | duration=%.3fs",
+            len(evidence),
+            filtering_elapsed,
+        )
+
         if not evidence:
+            logger.warning(
+                "No relevant evidence remained after filtering; returning refusal."
+            )
+            total_elapsed = time.perf_counter() - pipeline_start
+            logger.info(
+                "RAG request completed with refusal | duration=%.3fs",
+                total_elapsed,
+            )
             return self._refusal_response()
 
-        evidence_text = self._format_evidence(evidence)
-        prompt = f"{SYSTEM_PROMPT}\n\n{build_grounded_prompt(question, evidence_text)}"
-        answer = self.generator.generate(prompt)
+        # --------------------------------------------------------------
+        # Prompt construction
+        # --------------------------------------------------------------
+        prompt_start = time.perf_counter()
+
+        logger.info(
+            "Grounded prompt construction started | evidence=%s",
+            len(evidence),
+        )
+
+        try:
+            evidence_text = self._format_evidence(evidence)
+            prompt = (
+                f"{SYSTEM_PROMPT}\n\n{build_grounded_prompt(question, evidence_text)}"
+            )
+        except Exception:
+            prompt_elapsed = time.perf_counter() - prompt_start
+            logger.exception(
+                "Prompt construction failed | duration=%.3fs",
+                prompt_elapsed,
+            )
+            raise
+
+        prompt_elapsed = time.perf_counter() - prompt_start
+
+        logger.info(
+            "Grounded prompt construction completed | prompt_length=%s | duration=%.3fs",
+            len(prompt),
+            prompt_elapsed,
+        )
+
+        # --------------------------------------------------------------
+        # Generation
+        # --------------------------------------------------------------
+        generation_start = time.perf_counter()
+        logger.info(
+            "Answer generation started | evidence=%s",
+            len(evidence),
+        )
+
+        try:
+            answer = self.generator.generate(prompt)
+        except Exception:
+            generation_elapsed = time.perf_counter() - generation_start
+            logger.exception(
+                "Answer generation failed | duration=%.3fs",
+                generation_elapsed,
+            )
+            raise
+
+        generation_elapsed = time.perf_counter() - generation_start
+
+        logger.info(
+            "Answer generation completed | response_length=%s | duration=%.3fs",
+            len(answer or ""),
+            generation_elapsed,
+        )
+
+        if generation_elapsed >= 10.0:
+            logger.warning(
+                "Slow generation detected | duration=%.3fs",
+                generation_elapsed,
+            )
 
         if self._is_refusal(answer):
+            total_elapsed = time.perf_counter() - pipeline_start
+            logger.info(
+                "Generator returned a refusal | total_duration=%.3fs",
+                total_elapsed,
+            )
             return self._refusal_response()
+
+        total_elapsed = time.perf_counter() - pipeline_start
+
+        if total_elapsed >= 10.0:
+            logger.warning(
+                "Slow RAG request detected | total_duration=%.3fs",
+                total_elapsed,
+            )
+
+        logger.info(
+            "RAG request completed successfully | total_duration=%.3fs | evidence=%s",
+            total_elapsed,
+            len(evidence),
+        )
 
         return RAGResponse(answer=answer.strip(), evidence=evidence)
 

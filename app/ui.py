@@ -2,11 +2,16 @@ import re
 import html
 import textwrap
 import hashlib
+import logging
+import time
 
 import streamlit as st
 
 from app.controller import RetailAssistController
 from rag.service import RAGResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_document_id(file_bytes: bytes) -> str:
@@ -1032,7 +1037,7 @@ def render_document_management(controller: RetailAssistController) -> None:
 
         st.dataframe(
             rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -1082,7 +1087,7 @@ def render_document_management(controller: RetailAssistController) -> None:
         with action1:
             retry_clicked = st.button(
                 "↻ Retry",
-                use_container_width=True,
+                width="stretch",
                 disabled=status == "INDEXED" and active,
                 key=f"retry_{document_id}",
             )
@@ -1090,14 +1095,14 @@ def render_document_management(controller: RetailAssistController) -> None:
         with action2:
             reindex_clicked = st.button(
                 "⟳ Re-index",
-                use_container_width=True,
+                width="stretch",
                 key=f"reindex_{document_id}",
             )
 
         with action3:
             delete_clicked = st.button(
                 "🗑️ Delete",
-                use_container_width=True,
+                width="stretch",
                 disabled=not active,
                 key=f"delete_{document_id}",
             )
@@ -1105,7 +1110,7 @@ def render_document_management(controller: RetailAssistController) -> None:
         with action4:
             refresh_clicked = st.button(
                 "🔄 Refresh",
-                use_container_width=True,
+                width="stretch",
                 key=f"refresh_{document_id}",
             )
 
@@ -1161,6 +1166,8 @@ def run_app(
     controller: RetailAssistController,
 ) -> None:
     """Render the SupportAI Streamlit application."""
+
+    logger.debug("Rendering SupportAI UI.")
 
     st.set_page_config(
         page_title="SupportAI | Customer Support Assistant",
@@ -1249,8 +1256,26 @@ def run_app(
         }[provider]
 
         try:
-            controller.set_provider(provider_name)
+            current_provider = controller.get_provider()
+
+            if current_provider != provider_name:
+                logger.info(
+                    "UI provider selection changed | from=%s | to=%s",
+                    current_provider,
+                    provider_name,
+                )
+                controller.set_provider(provider_name)
+            else:
+                logger.debug(
+                    "UI provider unchanged | provider=%s",
+                    provider_name,
+                )
+
         except Exception as exc:
+            logger.exception(
+                "UI provider selection failed | provider=%s",
+                provider_name,
+            )
             st.error(f"Unable to select {provider}: {exc}")
 
         # -----------------------------------------------------
@@ -1281,6 +1306,7 @@ def run_app(
                 valid_files, upload_errors = validate_uploaded_files(uploaded_files)
 
                 for error in upload_errors:
+                    logger.warning("Upload validation error: %s", error)
                     st.error(error)
 
                 if valid_files:
@@ -1302,6 +1328,10 @@ def run_app(
                                     )
                                 )
                             except Exception:
+                                logger.exception(
+                                    "Document category detection failed | filename=%s",
+                                    uploaded_file.name,
+                                )
                                 detected_category = "Unable to detect"
 
                         st.write(
@@ -1315,10 +1345,18 @@ def run_app(
                     if st.button(
                         "⬆️ Upload to Snowflake",
                         type="primary",
-                        use_container_width=True,
+                        width="stretch",
                         key="main_upload_to_snowflake",
                     ):
+                        logger.info(
+                            "Document upload action triggered | files=%s",
+                            len(valid_files),
+                        )
+
                         if controller.document_store is None:
+                            logger.error(
+                                "Document upload requested but document store is unavailable."
+                            )
                             st.error("Document upload requires Snowflake mode.")
 
                         else:
@@ -1328,6 +1366,13 @@ def run_app(
                                 file_bytes = uploaded_file.getvalue()
 
                                 try:
+                                    upload_start = time.perf_counter()
+                                    logger.info(
+                                        "Document upload started | filename=%s | size_bytes=%s",
+                                        uploaded_file.name,
+                                        len(file_bytes),
+                                    )
+
                                     staged_path = (
                                         controller.document_store.upload_to_stage(
                                             file_bytes=file_bytes,
@@ -1362,7 +1407,18 @@ def run_app(
 
                                     successful_uploads += 1
 
+                                    logger.info(
+                                        "Document upload completed | filename=%s | duration=%.3fs",
+                                        uploaded_file.name,
+                                        time.perf_counter() - upload_start,
+                                    )
+
                                 except Exception as exc:
+                                    logger.exception(
+                                        "Document upload failed | filename=%s | duration=%.3fs",
+                                        uploaded_file.name,
+                                        time.perf_counter() - upload_start,
+                                    )
                                     st.error(
                                         f"Failed to upload {uploaded_file.name}: {exc}"
                                     )
@@ -1407,30 +1463,49 @@ def run_app(
             ask_clicked = st.button(
                 "✦  Ask SupportAI",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="ask_supportai",
             )
 
         with col2:
             clear_clicked = st.button(
                 "↺  Clear",
-                use_container_width=True,
+                width="stretch",
                 key="clear_supportai",
             )
 
         if clear_clicked:
+            logger.info("Clear button clicked.")
             st.rerun()
 
         if ask_clicked:
             if not question.strip():
+                logger.warning("Ask action rejected because question was empty.")
                 st.warning("Please enter a question.")
                 return
+
+            request_start = time.perf_counter()
+
+            logger.info(
+                "UI question processing started | provider=%s | question_length=%s",
+                provider_name,
+                len(question.strip()),
+            )
 
             try:
                 with st.spinner(
                     f"Retrieving evidence and generating with {provider}..."
                 ):
                     response = controller.ask(question.strip())
+
+                elapsed = time.perf_counter() - request_start
+
+                logger.info(
+                    "UI question processing completed | provider=%s | duration=%.3fs | evidence=%s",
+                    provider_name,
+                    elapsed,
+                    len(response.evidence or []),
+                )
 
                 render_response(
                     response,
@@ -1439,12 +1514,27 @@ def run_app(
                 )
 
             except ValueError as exc:
+                logger.warning(
+                    "UI question validation failed | provider=%s | error=%s",
+                    provider_name,
+                    exc,
+                )
                 st.error(str(exc))
 
             except RuntimeError as exc:
+                logger.exception(
+                    "UI request failed with runtime error | provider=%s | duration=%.3fs",
+                    provider_name,
+                    time.perf_counter() - request_start,
+                )
                 st.error(str(exc))
 
             except Exception:
+                logger.exception(
+                    "Unexpected UI request failure | provider=%s | duration=%.3fs",
+                    provider_name,
+                    time.perf_counter() - request_start,
+                )
                 st.error(
                     f"{provider} could not generate a response. "
                     "Please check the provider configuration and try again."
