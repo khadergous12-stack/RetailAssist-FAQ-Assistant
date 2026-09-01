@@ -30,6 +30,9 @@ class OpenAIGenerator:
 
     Logging in this class is diagnostic only. It records provider activity,
     timing, and failures without logging API keys or the full prompt.
+
+    Grok 4.3 reasoning is disabled through OpenRouter's extra_body
+    parameter so this remains compatible with the installed OpenAI SDK.
     """
 
     def __init__(
@@ -120,6 +123,7 @@ class OpenAIGenerator:
                         }
                     ],
                     max_tokens=self.max_tokens,
+                    extra_body={"reasoning": {"effort": "none"}},
                 )
 
             except AuthenticationError as exc:

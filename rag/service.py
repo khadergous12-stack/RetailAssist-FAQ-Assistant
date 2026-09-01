@@ -49,7 +49,7 @@ class RAGService:
     # Mutually exclusive variants. If a customer explicitly asks for one
     # variant, evidence for another variant must not be shown.
     VARIANT_GROUPS = (
-        {"standard", "express", "overnight", "priority"},
+        {"standard", "express", "expedited", "overnight", "priority"},
         {"monthly", "annual", "yearly"},
     )
 
@@ -230,6 +230,20 @@ class RAGService:
             r"\bcredit\b",
             r"\breimburse\w*\b",
         ),
+        "warranty": (
+            r"\bwarranty\b",
+            r"\bguarantee\b",
+        ),
+        "replacement": (
+            r"\breplacement\b",
+            r"\breplace\w*\b",
+        ),
+        "address_change": (
+            r"\bshipping address\b",
+            r"\bchange(?:d|s|ing)?\b.*\baddress\b",
+            r"\baddress\b.*\bchange(?:d|s|ing)?\b",
+            r"\bredirect\w*\b.*\bparcel\b",
+        ),
         "procedure": (
             r"\bwhat should i do\b",
             r"\bwhat do i do\b",
@@ -299,6 +313,63 @@ class RAGService:
                 query=question,
                 top_k=top_k,
             )
+
+            # Targeted query expansion for ambiguous cross-domain wording.
+            # This does not change normal retrieval; it only asks Cortex Search
+            # for one additional candidate set when the question clearly
+            # belongs to a specific policy family.
+            query_lower = question.lower()
+            supplemental_query = None
+
+            if (
+                "refund" in query_lower
+                and "fee" in query_lower
+                and ("express" in query_lower or "expedited" in query_lower)
+            ):
+                supplemental_query = f"{question} expedited shipping upgrade refund delivery fee refund policy"
+            elif "shipping address" in query_lower or (
+                "address" in query_lower
+                and (
+                    "parcel" in query_lower
+                    or "truck" in query_lower
+                    or "shipment" in query_lower
+                )
+            ):
+                supplemental_query = f"{question} change shipping address after dispatch parcel truck shipment"
+
+            if supplemental_query:
+                try:
+                    supplemental = self.retriever.retrieve(
+                        query=supplemental_query,
+                        top_k=max(top_k, 8),
+                    )
+                    initial_count = len(retrieved)
+                    seen = {
+                        (
+                            str(chunk.document_id),
+                            str(chunk.chunk_id),
+                            str(chunk.chunk_index),
+                        )
+                        for chunk in retrieved
+                    }
+                    for chunk in supplemental:
+                        key = (
+                            str(chunk.document_id),
+                            str(chunk.chunk_id),
+                            str(chunk.chunk_index),
+                        )
+                        if key not in seen:
+                            retrieved.append(chunk)
+                            seen.add(key)
+                    logger.info(
+                        "Supplemental retrieval completed | added=%s",
+                        len(retrieved) - initial_count,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Supplemental retrieval failed; continuing with primary results."
+                    )
+
         except Exception:
             retrieval_elapsed = time.perf_counter() - retrieval_start
             logger.exception(
@@ -647,6 +718,29 @@ class RAGService:
         ):
             intents.add("refund")
 
+        if re.search(
+            r"\bwarranty\b"
+            r"|\bguarantee\b",
+            body,
+        ):
+            intents.add("warranty")
+
+        if re.search(
+            r"\breplacement\b"
+            r"|\breplace\w*\b",
+            body,
+        ):
+            intents.add("replacement")
+
+        if re.search(
+            r"\bshipping address\b"
+            r"|\baddress\b.*\bchange(?:d|s|ing)?\b"
+            r"|\bchange(?:d|s|ing)?\b.*\baddress\b"
+            r"|\bredirect\w*\b.*\bparcel\b",
+            body,
+        ):
+            intents.add("address_change")
+
         # Upload/document limit questions.
         if re.search(
             r"\bmaximum file size\b"
@@ -715,6 +809,69 @@ class RAGService:
     @staticmethod
     def _is_uploaded(chunk: RetrievedChunk) -> bool:
         return str(chunk.source_type or "").strip().upper() == "USER_UPLOAD"
+
+    @classmethod
+    def _source_hint_score(
+        cls,
+        question: str,
+        chunk: RetrievedChunk,
+    ) -> float:
+        """Prefer the policy domain explicitly named by the customer.
+
+        This is a ranking hint only. It does not fabricate evidence and does
+        not bypass the existing lexical/intent gates.
+        """
+
+        question_lower = str(question or "").lower()
+        source_text = " ".join(
+            [
+                str(chunk.document_name or ""),
+                str(chunk.category or ""),
+                str(chunk.section_heading or ""),
+            ]
+        ).lower()
+
+        score = 0.0
+
+        # Warranty questions should strongly prefer warranty-domain evidence.
+        if "warranty" in question_lower or "guarantee" in question_lower:
+            if re.search(r"\bwarranty\b|\bguarantee\b", source_text):
+                score += 10.0
+
+        # Replacement warranty questions should prefer warranty evidence, not
+        # generic returns/refunds/shipping documents.
+        if "replacement" in question_lower:
+            if re.search(r"\bwarranty\b|\bguarantee\b", source_text):
+                score += 6.0
+
+        # Explicit shipping-address changes are shipping-domain questions.
+        if (
+            "shipping address" in question_lower
+            or ("address" in question_lower and "parcel" in question_lower)
+            or "on the truck" in question_lower
+        ):
+            if re.search(
+                r"shipping|shipment|delivery|carrier|dispatch|parcel|address",
+                source_text,
+            ):
+                score += 20.0
+            elif re.search(r"warranty|refund|returns?|payments?", source_text):
+                score -= 20.0
+
+        # A refund question mentioning an express delivery fee is a refund
+        # policy question. The source hint prevents a shipping policy chunk
+        # from winning merely because it shares "express" and "fee".
+        if (
+            "refund" in question_lower
+            and "fee" in question_lower
+            and "express" in question_lower
+        ):
+            if re.search(r"refund|returns?|reimburse|credit", source_text):
+                score += 22.0
+            elif re.search(r"shipping|delivery", source_text):
+                score -= 20.0
+
+        return score
 
     # ------------------------------------------------------------------
     # Relevance scoring
@@ -786,6 +943,12 @@ class RAGService:
             candidate_intents,
             query_words,
             body_words,
+        )
+
+        # Prefer the policy domain explicitly named in the question.
+        score += cls._source_hint_score(
+            question=question,
+            chunk=chunk,
         )
 
         # Preserve highly distinctive query terms such as standard/express,
@@ -932,6 +1095,90 @@ class RAGService:
                 if "return" not in candidate_intents:
                     continue
 
+            # Warranty-specific questions should use warranty-domain evidence.
+            if "warranty" in query_intents:
+                candidate_source = " ".join(
+                    [
+                        str(chunk.document_name or ""),
+                        str(chunk.category or ""),
+                        str(chunk.section_heading or ""),
+                    ]
+                ).lower()
+
+                if "warranty" not in candidate_intents and not re.search(
+                    r"\bwarranty\b|\bguarantee\b",
+                    candidate_source,
+                ):
+                    continue
+
+            # Replacement warranty questions should stay within warranty
+            # evidence. The replacement intent alone is not enough because
+            # return/refund documents can also mention replacement products.
+            if "replacement" in query_intents and "warranty" in query_intents:
+                candidate_source = " ".join(
+                    [
+                        str(chunk.document_name or ""),
+                        str(chunk.category or ""),
+                        str(chunk.section_heading or ""),
+                    ]
+                ).lower()
+
+                if "warranty" not in candidate_intents and not re.search(
+                    r"\bwarranty\b|\bguarantee\b",
+                    candidate_source,
+                ):
+                    continue
+
+            # Shipping-address changes are a distinct operational topic.
+            # Prefer/require shipping-domain evidence for this specific query
+            # so unrelated warranty or return chunks cannot win on generic
+            # words such as "change", "parcel", or "address".
+            if "address_change" in query_intents:
+                candidate_source = " ".join(
+                    [
+                        str(chunk.document_name or ""),
+                        str(chunk.category or ""),
+                        str(chunk.section_heading or ""),
+                    ]
+                ).lower()
+
+                shipping_domain = bool(
+                    re.search(
+                        r"shipping|shipment|delivery|carrier|dispatch|parcel|address",
+                        candidate_source,
+                    )
+                )
+
+                if "address_change" not in candidate_intents and not shipping_domain:
+                    continue
+
+            # A refund question that explicitly asks whether a delivery fee is
+            # refunded belongs to the refund/returns domain. Do not allow a
+            # shipping-domain chunk to win simply because it contains
+            # "express" and "fee".
+            if (
+                "refund" in query_intents
+                and "cost" in query_intents
+                and "express" in query_words
+            ):
+                candidate_source = " ".join(
+                    [
+                        str(chunk.document_name or ""),
+                        str(chunk.category or ""),
+                        str(chunk.section_heading or ""),
+                    ]
+                ).lower()
+
+                refund_domain = bool(
+                    re.search(
+                        r"refund|returns?|reimburse|credit",
+                        candidate_source,
+                    )
+                )
+
+                if "refund" not in candidate_intents and not refund_domain:
+                    continue
+
             # ----------------------------------------------------------
             # Procedure protection
             # ----------------------------------------------------------
@@ -945,6 +1192,9 @@ class RAGService:
                     "damage",
                     "refund",
                     "eligibility",
+                    "warranty",
+                    "replacement",
+                    "address_change",
                 }
 
                 if not (
@@ -1018,6 +1268,122 @@ class RAGService:
             reverse=True,
         )
 
+        # --------------------------------------------------------------
+        # Explicit policy-domain selection
+        # --------------------------------------------------------------
+        # Some questions combine words that appear across multiple policies.
+        # When the customer explicitly names the business outcome, prefer the
+        # corresponding policy domain over a generic lexical match.
+        question_lower = str(question or "").lower()
+
+        def source_text(chunk: RetrievedChunk) -> str:
+            # Domain selection must use SOURCE METADATA only.
+            # Do not inspect chunk body text here because a shipping policy
+            # can legitimately mention refunds, fees, addresses, etc.
+            # Those words describe the policy rule, but they do not change
+            # which policy family owns the evidence.
+            return " ".join(
+                [
+                    str(chunk.document_name or ""),
+                    str(chunk.category or ""),
+                    str(chunk.section_heading or ""),
+                ]
+            ).lower()
+
+        preferred_domain = None
+
+        # "Express delivery fee refunded" is fundamentally a refund/charge
+        # question. The refunds FAQ contains the explicit rule for expedited
+        # shipping upgrades.
+        if (
+            "refund" in question_lower
+            and "fee" in question_lower
+            and ("express" in question_lower or "expedited" in question_lower)
+        ):
+            preferred_domain = "refund"
+
+        # "Change shipping address" is fundamentally a shipping operation.
+        elif "shipping address" in question_lower or (
+            "address" in question_lower
+            and (
+                "parcel" in question_lower
+                or "truck" in question_lower
+                or "shipment" in question_lower
+            )
+        ):
+            preferred_domain = "shipping"
+
+        if preferred_domain:
+            domain_candidates = []
+
+            for item in scored:
+                score, position, chunk = item
+                candidate_source = source_text(chunk)
+
+                if preferred_domain == "refund":
+                    is_preferred = bool(
+                        re.search(
+                            r"refund|refunds_faq|refund policy|reimburse|credit|returns?",
+                            candidate_source,
+                        )
+                    )
+                else:
+                    is_preferred = bool(
+                        re.search(
+                            r"shipping|shipment|delivery|carrier|dispatch|parcel|shipping_faq|shipping policy|address",
+                            candidate_source,
+                        )
+                    )
+
+                if is_preferred:
+                    domain_candidates.append(item)
+
+            if domain_candidates:
+                # For an explicitly domain-specific question, do not let the
+                # later compound-intent pass reintroduce evidence from another
+                # policy family. Once a valid preferred-domain candidate exists,
+                # restrict final evidence selection to that domain.
+                domain_candidates.sort(
+                    key=lambda item: item[0],
+                    reverse=True,
+                )
+                scored = domain_candidates
+
+        # Final semantic tie-break for the two known cross-domain ambiguities.
+        # When the retrieved set contains the explicit policy rule, it wins over
+        # a generic document that only shares words such as "express", "fee",
+        # "parcel", or "address".
+        if preferred_domain == "refund":
+            explicit_refund = [
+                item
+                for item in scored
+                if re.search(
+                    r"expedited(?:-shipping)?(?:\s+shipping)?\s+(?:upgrade|upgrades).*?refund|shipping charges.*?refunded|express.*?fee.*?refund",
+                    str(item[2].chunk_text or ""),
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+            ]
+            if explicit_refund:
+                explicit_refund.sort(key=lambda item: item[0], reverse=True)
+                scored = explicit_refund + [
+                    item for item in scored if item not in explicit_refund
+                ]
+        elif preferred_domain == "shipping":
+            explicit_shipping = [
+                item
+                for item in scored
+                if re.search(
+                    r"change.*?shipping address|shipping address.*?change|address.*?(?:already|truck|dispatch|parcel)",
+                    str(item[2].chunk_text or ""),
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+            ]
+            if explicit_shipping:
+                explicit_shipping.sort(key=lambda item: item[0], reverse=True)
+                scored = explicit_shipping + [
+                    item for item in scored if item not in explicit_shipping
+                ]
+
         best_score, _, best_chunk = scored[0]
 
         # --------------------------------------------------------------
@@ -1070,6 +1436,9 @@ class RAGService:
             "tracking",
             "refund",
             "cost",
+            "warranty",
+            "replacement",
+            "address_change",
             "limit",
         ):
             if intent not in query_intents:

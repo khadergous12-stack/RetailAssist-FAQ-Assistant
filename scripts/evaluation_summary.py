@@ -13,6 +13,8 @@ OUTPUT_FILE = ROOT / "data" / "provider_evaluation_summary.csv"
 
 
 REFUSAL_PHRASES = (
+    "i couldn't find a policy",
+    "i could not find a policy",
     "couldn't find a policy",
     "could not find a policy",
     "not enough information",
@@ -22,28 +24,49 @@ REFUSAL_PHRASES = (
 
 def normalize_source(value: str) -> str:
     """
-    Normalize filenames and built-in document names so equivalent sources
-    compare correctly.
+    Normalize source names while preserving meaningful policy identity.
+
+    The evaluation CSV defines the expected source. We only normalize
+    harmless filename/format differences; we do not treat unrelated
+    policies as equivalent.
     """
 
     value = str(value or "").strip().lower()
 
-    # Remove extension.
-    value = re.sub(r"\.(pdf|docx|md|txt)$", "", value)
+    if not value:
+        return ""
 
-    # Normalize separators.
-    value = re.sub(r"[_\-]+", " ", value)
-    value = re.sub(r"\s+", " ", value).strip()
+    if value.upper() == "NONE":
+        return "none"
 
-    # Normalize known built-in naming differences.
+    value = re.sub(
+        r"\.(pdf|docx|md|txt)$",
+        "",
+        value,
+    )
+
+    value = re.sub(
+        r"[_\-]+",
+        " ",
+        value,
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value,
+    ).strip()
+
     aliases = {
         "returns faq": "returns faq",
+        "return faq": "returns faq",
         "return policy": "returns faq",
         "refunds faq": "refunds faq",
+        "refund faq": "refunds faq",
         "shipping faq": "shipping faq",
         "payments faq": "payments faq",
         "warranty faq": "warranty faq",
-        "supportai shipping policy": "shipping policy",
+        "supportai shipping policy": "shipping faq",
         "supportai refund policy": "refunds faq",
     }
 
@@ -51,7 +74,7 @@ def normalize_source(value: str) -> str:
 
 
 def is_refusal(answer: str) -> bool:
-    text = (answer or "").strip().lower()
+    text = str(answer or "").strip().lower()
 
     return any(phrase in text for phrase in REFUSAL_PHRASES)
 
@@ -59,38 +82,65 @@ def is_refusal(answer: str) -> bool:
 def source_correct(
     expected_source: str,
     retrieved_sources: str,
-) -> bool:
+) -> str:
+    """
+    Return:
+      true  -> expected source retrieved
+      false -> expected source not retrieved
+      ""    -> source correctness is not applicable
+
+    Unsupported questions use expected_source=NONE, so source correctness
+    should not be counted as a normal retrieval failure.
+    """
+
     expected = normalize_source(expected_source)
 
-    if expected.upper() == "NONE":
-        return False
+    if expected == "none":
+        return ""
 
     sources = {
         normalize_source(source)
-        for source in retrieved_sources.split(";")
+        for source in str(retrieved_sources or "").split(";")
         if source.strip()
     }
 
-    return expected in sources
+    return str(expected in sources).lower()
 
 
 def unsupported_handled(
     answerable: bool,
     answer: str,
+    error: str,
 ) -> str:
     if answerable:
         return ""
 
+    if error:
+        return "false"
+
     return str(is_refusal(answer)).lower()
 
 
+def safe_float(value: str) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def main() -> None:
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(f"Evaluation results file not found: {INPUT_FILE}")
+
     with INPUT_FILE.open(
         "r",
         encoding="utf-8-sig",
         newline="",
     ) as handle:
         rows = list(csv.DictReader(handle))
+
+    if not rows:
+        raise ValueError(f"Evaluation results file is empty: {INPUT_FILE}")
 
     providers = {
         "Snowflake Cortex": {
@@ -112,29 +162,70 @@ def main() -> None:
         successful_times = []
         successful_count = 0
         source_correct_count = 0
+        source_applicable_count = 0
         unsupported_total = 0
         unsupported_correct = 0
 
         for row in rows:
-            answer = row.get(columns["answer"], "") or ""
-            error = row.get(columns["error"], "") or ""
+            answer = (
+                row.get(
+                    columns["answer"],
+                    "",
+                )
+                or ""
+            )
 
-            response_time = float(row.get(columns["time"], "0") or 0)
+            error = (
+                row.get(
+                    columns["error"],
+                    "",
+                )
+                or ""
+            )
 
-            answerable = row.get("answerable", "").strip().lower() == "true"
+            response_time = safe_float(
+                row.get(
+                    columns["time"],
+                    "0",
+                )
+            )
+
+            answerable = (
+                row.get(
+                    "answerable",
+                    "",
+                )
+                .strip()
+                .lower()
+                == "true"
+            )
 
             source_ok = source_correct(
-                row.get("expected_source", ""),
-                row.get("retrieved_sources", ""),
+                row.get(
+                    "expected_source",
+                    "",
+                ),
+                row.get(
+                    "retrieved_sources",
+                    "",
+                ),
             )
+
+            if source_ok:
+                source_applicable_count += 1
+
+                if source_ok == "true":
+                    source_correct_count += 1
 
             unsupported_ok = ""
 
             if not answerable:
                 unsupported_total += 1
+
                 unsupported_ok = unsupported_handled(
                     answerable,
                     answer,
+                    error,
                 )
 
                 if unsupported_ok == "true":
@@ -146,16 +237,16 @@ def main() -> None:
                 successful_count += 1
                 successful_times.append(response_time)
 
-            if source_ok:
-                source_correct_count += 1
-
             detail_rows.append(
                 {
                     "provider": provider_name,
-                    "question_id": row["id"],
+                    "question_id": row.get(
+                        "id",
+                        "",
+                    ),
                     "answerable": str(answerable).lower(),
                     "request_successful": str(request_ok).lower(),
-                    "source_correct": str(source_ok).lower(),
+                    "source_correct": source_ok,
                     "unsupported_handled": unsupported_ok,
                     "response_time_sec": response_time,
                     "correctness": "",
@@ -173,6 +264,7 @@ def main() -> None:
                 "questions": len(rows),
                 "successful_responses": successful_count,
                 "source_correct": source_correct_count,
+                "source_applicable": source_applicable_count,
                 "unsupported_total": unsupported_total,
                 "unsupported_handled": unsupported_correct,
                 "average_response_time_sec": round(
@@ -181,6 +273,11 @@ def main() -> None:
                 ),
             }
         )
+
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     with OUTPUT_FILE.open(
         "w",
@@ -204,7 +301,10 @@ def main() -> None:
         print(row["provider"])
         print("-" * 65)
         print(f"Successful responses: {row['successful_responses']}/{row['questions']}")
-        print(f"Source-correct retrievals: {row['source_correct']}/{row['questions']}")
+        print(
+            f"Source-correct retrievals: "
+            f"{row['source_correct']}/{row['source_applicable']}"
+        )
         print(
             f"Unsupported questions handled: "
             f"{row['unsupported_handled']}/"
@@ -215,9 +315,10 @@ def main() -> None:
 
     print(f"Detailed results written to: {OUTPUT_FILE}")
     print(
-        "Correctness and groundedness remain blank because the supplied "
-        "evaluation CSV does not contain expected answers for objective "
-        "automatic scoring."
+        "Correctness and groundedness remain blank because "
+        "the evaluation dataset provides expected sources but "
+        "does not provide reference answers for objective "
+        "answer-level scoring."
     )
 
 

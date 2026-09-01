@@ -1,37 +1,55 @@
+from __future__ import annotations
+
 import csv
 from pathlib import Path
 
 from app.demo_providers import DemoRetriever
 
 
+REQUIRED_COLUMNS = {
+    "id",
+    "question",
+    "expected_source",
+    "answerable",
+}
+
+
 def load_evaluation_questions():
-    """Load evaluation questions from the CSV file."""
+    """Load and validate evaluation questions."""
 
     project_root = Path(__file__).resolve().parent.parent
+
     csv_path = project_root / "data" / "evaluation_questions.csv"
+
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Evaluation questions file not found: {csv_path}")
 
     with csv_path.open(
         "r",
-        encoding="utf-8",
+        encoding="utf-8-sig",
         newline="",
     ) as file:
-        return list(csv.DictReader(file))
+        rows = list(csv.DictReader(file))
+
+    if not rows:
+        raise ValueError("Evaluation questions file is empty.")
+
+    missing = REQUIRED_COLUMNS - set(rows[0].keys())
+
+    if missing:
+        raise ValueError(
+            "Evaluation CSV is missing required columns: " + ", ".join(sorted(missing))
+        )
+
+    return rows
 
 
 def normalize_source(source: str) -> str:
     """
-    Normalize FAQ source names so that harmless capitalization
-    differences do not cause evaluation failures.
-
-    Example:
-        Returns FAQ
-        Returns Faq
-
-    Both become:
-        returns faq
+    Normalize harmless case and whitespace differences.
     """
 
-    return " ".join(source.strip().lower().split())
+    return " ".join(str(source or "").strip().lower().split())
 
 
 def evaluate():
@@ -46,14 +64,14 @@ def evaluate():
 
     print()
     print("=" * 75)
-    print("RetailAssist RAG Retrieval Evaluation")
+    print("SupportAI RAG Retrieval Evaluation")
     print("=" * 75)
 
     for row in questions:
         question_id = row["id"]
         question = row["question"]
         expected_source = row["expected_source"]
-        answerable = row["answerable"].lower() == "true"
+        answerable = row["answerable"].strip().lower() == "true"
 
         results = retriever.retrieve(
             query=question,
@@ -68,23 +86,11 @@ def evaluate():
 
         normalized_expected = normalize_source(expected_source)
 
-        # ---------------------------------------------------------
-        # Answerable question
-        # ---------------------------------------------------------
-
         if answerable:
             test_passed = normalized_expected in normalized_retrieved
-
-        # ---------------------------------------------------------
-        # Unsupported question
-        # ---------------------------------------------------------
-
         else:
-            # The current keyword retriever may return weakly
-            # related chunks for unsupported questions.
-            #
-            # We report these separately rather than treating
-            # every retrieved chunk as a definite failure.
+            # For unsupported questions, the lightweight demo retriever
+            # is expected to return no candidates.
             test_passed = len(results) == 0
 
         if test_passed:
@@ -106,10 +112,6 @@ def evaluate():
             )
         else:
             print("Retrieved: NONE")
-
-    # -------------------------------------------------------------
-    # Final summary
-    # -------------------------------------------------------------
 
     accuracy = (passed / total) * 100 if total else 0
 

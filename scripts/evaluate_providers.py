@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import sys
 import time
 from pathlib import Path
@@ -19,8 +20,17 @@ from rag.prompts import SYSTEM_PROMPT, build_grounded_prompt
 from rag.service import RAGService
 
 
+logger = logging.getLogger(__name__)
+
 QUESTIONS_FILE = PROJECT_ROOT / "data" / "evaluation_questions.csv"
 OUTPUT_FILE = PROJECT_ROOT / "data" / "provider_evaluation_results.csv"
+
+REQUIRED_COLUMNS = {
+    "id",
+    "question",
+    "expected_source",
+    "answerable",
+}
 
 
 def format_evidence(chunks) -> str:
@@ -54,7 +64,13 @@ def build_prompt(question: str, chunks) -> str:
 
 
 def get_sources(chunks) -> str:
-    return "; ".join(dict.fromkeys(chunk.document_name for chunk in chunks))
+    return "; ".join(
+        dict.fromkeys(
+            str(chunk.document_name).strip()
+            for chunk in chunks
+            if str(chunk.document_name).strip()
+        )
+    )
 
 
 def run_provider(generator, prompt: str):
@@ -65,11 +81,37 @@ def run_provider(generator, prompt: str):
         error = ""
     except Exception as exc:
         answer = ""
-        error = str(exc)
+        error = f"{type(exc).__name__}: {exc}"
 
     elapsed = time.perf_counter() - started
 
     return answer, error, elapsed
+
+
+def load_questions() -> list[dict[str, str]]:
+    if not QUESTIONS_FILE.exists():
+        raise FileNotFoundError(
+            f"Evaluation questions file not found: {QUESTIONS_FILE}"
+        )
+
+    with QUESTIONS_FILE.open(
+        "r",
+        encoding="utf-8-sig",
+        newline="",
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+
+    if not rows:
+        raise ValueError(f"Evaluation questions file is empty: {QUESTIONS_FILE}")
+
+    missing = REQUIRED_COLUMNS - set(rows[0].keys())
+
+    if missing:
+        raise ValueError(
+            "Evaluation CSV is missing required columns: " + ", ".join(sorted(missing))
+        )
+
+    return rows
 
 
 def main() -> None:
@@ -80,6 +122,13 @@ def main() -> None:
 
     if not settings.openrouter_model:
         raise RuntimeError("OPENROUTER_MODEL is not configured.")
+
+    questions = load_questions()
+
+    logger.info(
+        "Starting provider evaluation | questions=%s",
+        len(questions),
+    )
 
     session = create_snowflake_session()
 
@@ -96,45 +145,58 @@ def main() -> None:
             settings=settings,
         )
 
-        # RAGService is used only for evidence selection.
-        # Both providers will receive the exact same final evidence.
+        # RAGService is used only for final evidence selection.
+        # Both providers receive exactly the same final evidence.
         evidence_service = RAGService(
             retriever=retriever,
             generator=snowflake_generator,
         )
 
-        with QUESTIONS_FILE.open(
-            "r",
-            encoding="utf-8",
-            newline="",
-        ) as handle:
-            questions = list(csv.DictReader(handle))
-
         results = []
 
         for row in questions:
-            question_id = row["id"]
-            question = row["question"]
-            expected_source = row["expected_source"]
+            question_id = row["id"].strip()
+            question = row["question"].strip()
+            expected_source = row["expected_source"].strip()
             answerable = row["answerable"].strip().lower() == "true"
 
             print()
             print("=" * 80)
             print(f"{question_id}: {question}")
 
-            # --------------------------------------------------
-            # Retrieve + filter ONCE
-            # --------------------------------------------------
+            retrieval_error = ""
+            filter_error = ""
+            final_evidence = []
 
-            retrieved = retriever.retrieve(
-                query=question,
-                top_k=20,
-            )
+            retrieval_started = time.perf_counter()
 
-            final_evidence = evidence_service._filter_evidence(
-                question,
-                retrieved,
-            )
+            try:
+                retrieved = retriever.retrieve(
+                    query=question,
+                    top_k=20,
+                )
+            except Exception as exc:
+                retrieved = []
+                retrieval_error = f"{type(exc).__name__}: {exc}"
+                logger.exception(
+                    "Retrieval failed | question_id=%s",
+                    question_id,
+                )
+
+            retrieval_time = time.perf_counter() - retrieval_started
+
+            if not retrieval_error:
+                try:
+                    final_evidence = evidence_service._filter_evidence(
+                        question,
+                        retrieved,
+                    )
+                except Exception as exc:
+                    filter_error = f"{type(exc).__name__}: {exc}"
+                    logger.exception(
+                        "Evidence filtering failed | question_id=%s",
+                        question_id,
+                    )
 
             retrieved_sources = get_sources(final_evidence)
 
@@ -148,23 +210,36 @@ def main() -> None:
                 retrieved_sources or "NONE",
             )
 
-            # --------------------------------------------------
-            # Snowflake Cortex
-            # --------------------------------------------------
+            if retrieval_error:
+                print(
+                    "Retrieval error:",
+                    retrieval_error,
+                )
 
-            snowflake_answer, snowflake_error, snowflake_time = run_provider(
-                snowflake_generator,
-                prompt,
-            )
+            if filter_error:
+                print(
+                    "Evidence filtering error:",
+                    filter_error,
+                )
 
-            # --------------------------------------------------
-            # OpenRouter
-            # --------------------------------------------------
+            if retrieval_error or filter_error:
+                snowflake_answer = ""
+                snowflake_error = retrieval_error or filter_error
+                snowflake_time = retrieval_time
 
-            openrouter_answer, openrouter_error, openrouter_time = run_provider(
-                openrouter_generator,
-                prompt,
-            )
+                openrouter_answer = ""
+                openrouter_error = retrieval_error or filter_error
+                openrouter_time = 0.0
+            else:
+                snowflake_answer, snowflake_error, snowflake_time = run_provider(
+                    snowflake_generator,
+                    prompt,
+                )
+
+                openrouter_answer, openrouter_error, openrouter_time = run_provider(
+                    openrouter_generator,
+                    prompt,
+                )
 
             print(f"Snowflake: {snowflake_time:.2f}s")
             print(f"OpenRouter: {openrouter_time:.2f}s")
@@ -176,6 +251,8 @@ def main() -> None:
                     "expected_source": expected_source,
                     "answerable": str(answerable).lower(),
                     "retrieved_sources": retrieved_sources,
+                    "retrieval_error": retrieval_error,
+                    "evidence_filter_error": filter_error,
                     "snowflake_answer": snowflake_answer,
                     "snowflake_error": snowflake_error,
                     "snowflake_response_time_sec": round(
@@ -191,12 +268,31 @@ def main() -> None:
                 }
             )
 
+        OUTPUT_FILE.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
         with OUTPUT_FILE.open(
             "w",
             encoding="utf-8",
             newline="",
         ) as handle:
-            fieldnames = results[0].keys()
+            fieldnames = [
+                "id",
+                "question",
+                "expected_source",
+                "answerable",
+                "retrieved_sources",
+                "retrieval_error",
+                "evidence_filter_error",
+                "snowflake_answer",
+                "snowflake_error",
+                "snowflake_response_time_sec",
+                "openrouter_answer",
+                "openrouter_error",
+                "openrouter_response_time_sec",
+            ]
 
             writer = csv.DictWriter(
                 handle,
@@ -213,6 +309,7 @@ def main() -> None:
 
     finally:
         session.close()
+        logger.info("Snowflake evaluation session closed.")
 
 
 if __name__ == "__main__":
