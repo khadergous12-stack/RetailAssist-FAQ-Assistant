@@ -21,10 +21,8 @@ from rag.service import RAGService
 
 
 logger = logging.getLogger(__name__)
-
 QUESTIONS_FILE = PROJECT_ROOT / "data" / "evaluation_questions.csv"
 OUTPUT_FILE = PROJECT_ROOT / "data" / "provider_evaluation_results.csv"
-
 REQUIRED_COLUMNS = {
     "id",
     "question",
@@ -35,13 +33,10 @@ REQUIRED_COLUMNS = {
 
 def format_evidence(chunks) -> str:
     formatted = []
-
     for index, chunk in enumerate(chunks, start=1):
         page = str(chunk.page_number) if chunk.page_number is not None else "N/A"
-
         formatted.append(
             f"""Evidence {index}
-
 Document: {chunk.document_name}
 Document ID: {chunk.document_id}
 Category: {chunk.category or "Uncategorized"}
@@ -49,17 +44,14 @@ Chunk ID: {chunk.chunk_id}
 Chunk Index: {chunk.chunk_index}
 Page Number: {page}
 Section: {chunk.section_heading or "N/A"}
-
 Text:
 {chunk.chunk_text}""".strip()
         )
-
     return "\n\n".join(formatted)
 
 
 def build_prompt(question: str, chunks) -> str:
     evidence_text = format_evidence(chunks)
-
     return f"{SYSTEM_PROMPT}\n\n{build_grounded_prompt(question, evidence_text)}"
 
 
@@ -75,16 +67,13 @@ def get_sources(chunks) -> str:
 
 def run_provider(generator, prompt: str):
     started = time.perf_counter()
-
     try:
         answer = generator.generate(prompt)
         error = ""
     except Exception as exc:
         answer = ""
         error = f"{type(exc).__name__}: {exc}"
-
     elapsed = time.perf_counter() - started
-
     return answer, error, elapsed
 
 
@@ -105,7 +94,6 @@ def load_questions() -> list[dict[str, str]]:
         raise ValueError(f"Evaluation questions file is empty: {QUESTIONS_FILE}")
 
     missing = REQUIRED_COLUMNS - set(rows[0].keys())
-
     if missing:
         raise ValueError(
             "Evaluation CSV is missing required columns: " + ", ".join(sorted(missing))
@@ -117,31 +105,43 @@ def load_questions() -> list[dict[str, str]]:
 def main() -> None:
     settings = load_settings()
 
-    if not settings.openrouter_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured.")
+    # Groq uses the same OpenAI-compatible wrapper, but authentication/model
+    # are now supplied through GROQ_* configuration.
+    import os
 
-    if not settings.openrouter_model:
-        raise RuntimeError("OPENROUTER_MODEL is not configured.")
+    groq_api_key = os.getenv("GROQ_API_KEY") or getattr(
+        settings,
+        "groq_api_key",
+        None,
+    )
+    groq_model = os.getenv("GROQ_MODEL") or getattr(
+        settings,
+        "groq_model",
+        None,
+    )
+
+    if not groq_api_key:
+        raise RuntimeError("GROQ_API_KEY is not configured.")
+
+    if not groq_model:
+        raise RuntimeError("GROQ_MODEL is not configured. Example: openai/gpt-oss-20b")
 
     questions = load_questions()
-
     logger.info(
-        "Starting provider evaluation | questions=%s",
+        "Starting provider evaluation | questions=%s | generation_provider=Groq | model=%s",
         len(questions),
+        groq_model,
     )
 
     session = create_snowflake_session()
-
     try:
         retriever = SnowflakeRetriever(
             session=session,
         )
-
         snowflake_generator = SnowflakeGenerator(
             session=session,
         )
-
-        openrouter_generator = OpenAIGenerator(
+        groq_generator = OpenAIGenerator(
             settings=settings,
         )
 
@@ -169,7 +169,6 @@ def main() -> None:
             final_evidence = []
 
             retrieval_started = time.perf_counter()
-
             try:
                 retrieved = retriever.retrieve(
                     query=question,
@@ -182,7 +181,6 @@ def main() -> None:
                     "Retrieval failed | question_id=%s",
                     question_id,
                 )
-
             retrieval_time = time.perf_counter() - retrieval_started
 
             if not retrieval_error:
@@ -199,7 +197,6 @@ def main() -> None:
                     )
 
             retrieved_sources = get_sources(final_evidence)
-
             prompt = build_prompt(
                 question,
                 final_evidence,
@@ -211,38 +208,29 @@ def main() -> None:
             )
 
             if retrieval_error:
-                print(
-                    "Retrieval error:",
-                    retrieval_error,
-                )
-
+                print("Retrieval error:", retrieval_error)
             if filter_error:
-                print(
-                    "Evidence filtering error:",
-                    filter_error,
-                )
+                print("Evidence filtering error:", filter_error)
 
             if retrieval_error or filter_error:
                 snowflake_answer = ""
                 snowflake_error = retrieval_error or filter_error
                 snowflake_time = retrieval_time
-
-                openrouter_answer = ""
-                openrouter_error = retrieval_error or filter_error
-                openrouter_time = 0.0
+                groq_answer = ""
+                groq_error = retrieval_error or filter_error
+                groq_time = 0.0
             else:
                 snowflake_answer, snowflake_error, snowflake_time = run_provider(
                     snowflake_generator,
                     prompt,
                 )
-
-                openrouter_answer, openrouter_error, openrouter_time = run_provider(
-                    openrouter_generator,
+                groq_answer, groq_error, groq_time = run_provider(
+                    groq_generator,
                     prompt,
                 )
 
             print(f"Snowflake: {snowflake_time:.2f}s")
-            print(f"OpenRouter: {openrouter_time:.2f}s")
+            print(f"Groq: {groq_time:.2f}s")
 
             results.append(
                 {
@@ -259,10 +247,10 @@ def main() -> None:
                         snowflake_time,
                         3,
                     ),
-                    "openrouter_answer": openrouter_answer,
-                    "openrouter_error": openrouter_error,
-                    "openrouter_response_time_sec": round(
-                        openrouter_time,
+                    "groq_answer": groq_answer,
+                    "groq_error": groq_error,
+                    "groq_response_time_sec": round(
+                        groq_time,
                         3,
                     ),
                 }
@@ -289,16 +277,15 @@ def main() -> None:
                 "snowflake_answer",
                 "snowflake_error",
                 "snowflake_response_time_sec",
-                "openrouter_answer",
-                "openrouter_error",
-                "openrouter_response_time_sec",
+                "groq_answer",
+                "groq_error",
+                "groq_response_time_sec",
             ]
 
             writer = csv.DictWriter(
                 handle,
                 fieldnames=fieldnames,
             )
-
             writer.writeheader()
             writer.writerows(results)
 

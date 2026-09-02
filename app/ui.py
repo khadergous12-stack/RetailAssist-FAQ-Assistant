@@ -14,6 +14,20 @@ from rag.service import RAGResponse
 logger = logging.getLogger(__name__)
 
 
+FRAGMENT_AVAILABLE = callable(getattr(st, "fragment", None))
+
+
+def local_rerun() -> None:
+    """Rerun only the current fragment when supported by Streamlit."""
+    if FRAGMENT_AVAILABLE:
+        try:
+            st.rerun(scope="fragment")
+            return
+        except Exception:
+            logger.debug("Fragment rerun unavailable; falling back to full app rerun.")
+    st.rerun()
+
+
 def generate_document_id(file_bytes: bytes) -> str:
     """Generate a unique document ID from file contents."""
     return hashlib.sha256(file_bytes).hexdigest()[:16]
@@ -53,6 +67,38 @@ def validate_uploaded_files(uploaded_files):
         valid_files.append(uploaded_file)
 
     return valid_files, errors
+
+
+def detect_category_cached(controller, file_bytes: bytes, filename: str) -> str:
+    """Cache category detection for the same file content during this session."""
+    cache = st.session_state.setdefault("supportai_category_cache", {})
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    cache_key = f"{filename.lower()}::{file_hash}"
+
+    if cache_key in cache:
+        return cache[cache_key]
+
+    started = time.perf_counter()
+    try:
+        if controller.document_store is None:
+            detected = "Unable to detect"
+        else:
+            detected = controller.document_store.detect_category_from_file(
+                file_bytes,
+                filename,
+            )
+    except Exception:
+        logger.exception("Document category detection failed | filename=%s", filename)
+        detected = "Unable to detect"
+
+    cache[cache_key] = detected
+    logger.info(
+        "Category detection completed | filename=%s | category=%s | duration=%.3fs",
+        filename,
+        detected,
+        time.perf_counter() - started,
+    )
+    return detected
 
 
 # ============================================================
@@ -654,6 +700,39 @@ def inject_box_styles() -> None:
             }
 
             /* =========================================================
+               Inline processing indicator
+               ========================================================= */
+
+            .ra-processing {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 16px;
+                margin: 10px 0 18px;
+                border: 1px solid #dbe3ee;
+                border-radius: 13px;
+                background: rgba(255, 255, 255, 0.94);
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+                color: #475569;
+                font-size: 0.9rem;
+                font-weight: 650;
+            }
+
+            .ra-processing-spinner {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #c7d2fe;
+                border-top-color: #4f46e5;
+                border-radius: 50%;
+                animation: supportai-spin 0.8s linear infinite;
+                flex: 0 0 auto;
+            }
+
+            @keyframes supportai-spin {
+                to { transform: rotate(360deg); }
+            }
+
+            /* =========================================================
                Answer
                ========================================================= */
 
@@ -680,6 +759,27 @@ def inject_box_styles() -> None:
                 font-weight: 800;
                 color: #4f46e5;
                 margin-bottom: 9px;
+            }
+
+            .ra-answer-meta-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 14px;
+                color: #64748b;
+                font-size: 0.76rem;
+            }
+
+            .ra-latency-badge {
+                display: inline-flex;
+                align-items: center;
+                padding: 5px 9px;
+                border: 1px solid;
+                border-radius: 999px;
+                font-weight: 800;
+                white-space: nowrap;
             }
 
             /* =========================================================
@@ -825,6 +925,7 @@ def render_response(
     response: RAGResponse,
     question: str,
     provider: str = "",
+    latency_seconds: float | None = None,
 ) -> None:
     """
     Render the final answer and one relevant FAQ section per retrieved source.
@@ -847,12 +948,42 @@ def render_response(
 
     provider_label = provider.strip() if provider else "Unknown"
 
+    if latency_seconds is None:
+        latency_html = ""
+    else:
+        try:
+            latency_value = float(latency_seconds)
+        except (TypeError, ValueError):
+            latency_value = 0.0
+
+        if latency_value < 2.0:
+            latency_color = "#16a34a"
+            latency_bg = "#f0fdf4"
+            latency_border = "#bbf7d0"
+        elif latency_value < 5.0:
+            latency_color = "#d97706"
+            latency_bg = "#fffbeb"
+            latency_border = "#fde68a"
+        else:
+            latency_color = "#dc2626"
+            latency_bg = "#fef2f2"
+            latency_border = "#fecaca"
+
+        latency_html = (
+            f'<span class="ra-latency-badge" '
+            f'style="color:{latency_color};background:{latency_bg};'
+            f'border-color:{latency_border};">'
+            f"Latency: {latency_value:.2f}s"
+            f"</span>"
+        )
+
     answer_html = (
         '<div class="ra-answer-box">'
         '<div class="ra-answer-label">POLICY-GROUNDED RESPONSE</div>'
         f'<div class="ra-answer-text">{html.escape(answer)}</div>'
-        f'<div class="ra-source-meta" style="margin-top:14px;">'
-        f"Generated by: <strong>{html.escape(provider_label)}</strong>"
+        f'<div class="ra-answer-meta-row">'
+        f"<span>Generated by: <strong>{html.escape(provider_label)}</strong></span>"
+        f"{latency_html}"
         "</div>"
         "</div>"
     )
@@ -945,7 +1076,19 @@ def render_response(
         st.markdown(source_html, unsafe_allow_html=True)
 
 
-def render_document_management(controller: RetailAssistController) -> None:
+def render_processing_indicator(message: str, container=None) -> None:
+    """Render a lightweight inline spinner without dimming the page."""
+    target = container if container is not None else st
+    target.markdown(
+        """<div class="ra-processing">
+            <span class="ra-processing-spinner"></span>
+            <span>{}</span>
+        </div>""".format(html.escape(str(message))),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_document_management_impl(controller: RetailAssistController) -> None:
     """
     Render the document-management console.
 
@@ -1115,39 +1258,113 @@ def render_document_management(controller: RetailAssistController) -> None:
             )
 
         if retry_clicked:
+            action_started = time.perf_counter()
+            logger.info(
+                "Document management retry clicked | document_id=%s | filename=%s",
+                document_id,
+                selected.get("ORIGINAL_FILENAME"),
+            )
+            action_status = st.empty()
+            render_processing_indicator(
+                "Retrying document and rebuilding its index...", action_status
+            )
             try:
                 chunk_count = store.retry_document(document_id)
+                logger.info(
+                    "Document management retry succeeded | document_id=%s | chunks=%s | duration=%.3fs",
+                    document_id,
+                    chunk_count,
+                    time.perf_counter() - action_started,
+                )
+                action_status.empty()
                 st.success(
                     f"Retry completed for {selected['ORIGINAL_FILENAME']} "
                     f"({chunk_count} chunks)."
                 )
-                st.rerun()
+                local_rerun()
             except Exception as exc:
+                action_status.empty()
+                logger.exception(
+                    "Document management retry failed | document_id=%s | duration=%.3fs",
+                    document_id,
+                    time.perf_counter() - action_started,
+                )
                 st.error(f"Retry failed: {exc}")
 
         if reindex_clicked:
+            action_started = time.perf_counter()
+            logger.info(
+                "Document management re-index clicked | document_id=%s | filename=%s",
+                document_id,
+                selected.get("ORIGINAL_FILENAME"),
+            )
+            action_status = st.empty()
+            render_processing_indicator(
+                "Re-indexing document and refreshing Cortex Search...", action_status
+            )
             try:
                 chunk_count = store.reindex_document(document_id)
+                logger.info(
+                    "Document management re-index succeeded | document_id=%s | chunks=%s | duration=%.3fs",
+                    document_id,
+                    chunk_count,
+                    time.perf_counter() - action_started,
+                )
+                action_status.empty()
                 st.success(
                     f"Re-indexed {selected['ORIGINAL_FILENAME']} "
                     f"({chunk_count} chunks)."
                 )
-                st.rerun()
+                local_rerun()
             except Exception as exc:
+                action_status.empty()
+                logger.exception(
+                    "Document management re-index failed | document_id=%s | duration=%.3fs",
+                    document_id,
+                    time.perf_counter() - action_started,
+                )
                 st.error(f"Re-index failed: {exc}")
 
         if delete_clicked:
+            action_started = time.perf_counter()
+            logger.info(
+                "Document management delete clicked | document_id=%s | filename=%s",
+                document_id,
+                selected.get("ORIGINAL_FILENAME"),
+            )
+            action_status = st.empty()
+            render_processing_indicator(
+                "Deactivating document and removing it from retrieval...", action_status
+            )
             try:
                 store.delete_document(document_id)
+                logger.info(
+                    "Document management delete succeeded | document_id=%s | duration=%.3fs",
+                    document_id,
+                    time.perf_counter() - action_started,
+                )
+                action_status.empty()
                 st.success(
                     f"{selected['ORIGINAL_FILENAME']} was deactivated. "
                     "It will no longer be eligible for retrieval."
                 )
-                st.rerun()
+                local_rerun()
             except Exception as exc:
+                action_status.empty()
+                logger.exception(
+                    "Document management delete failed | document_id=%s | duration=%.3fs",
+                    document_id,
+                    time.perf_counter() - action_started,
+                )
                 st.error(f"Delete failed: {exc}")
 
         if refresh_clicked:
+            action_started = time.perf_counter()
+            logger.info(
+                "Document management refresh clicked | document_id=%s", document_id
+            )
+            action_status = st.empty()
+            render_processing_indicator("Refreshing Cortex Search...", action_status)
             try:
                 refresh_method = getattr(store, "refresh_search", None)
                 if refresh_method is None:
@@ -1157,9 +1374,637 @@ def render_document_management(controller: RetailAssistController) -> None:
                     )
                 else:
                     refresh_method()
+                    logger.info(
+                        "Document management refresh succeeded | document_id=%s | duration=%.3fs",
+                        document_id,
+                        time.perf_counter() - action_started,
+                    )
+                    action_status.empty()
                     st.success("Cortex Search refresh requested.")
             except Exception as exc:
+                action_status.empty()
+                logger.exception(
+                    "Document management refresh failed | document_id=%s | duration=%.3fs",
+                    document_id,
+                    time.perf_counter() - action_started,
+                )
                 st.warning(f"Search refresh could not be requested: {exc}")
+
+
+def _render_support_ai_impl(controller: RetailAssistController) -> None:
+    """Render the main interactive SupportAI area locally."""
+    # -----------------------------------------------------
+    # AI provider selection
+    # -----------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Generation</div>
+        <div class="ra-section-title">AI Provider</div>
+        <div class="ra-helper">
+            Select the provider to use for the next response.
+            Retrieval continues through Snowflake Cortex Search.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    provider = st.selectbox(
+        "AI Provider",
+        [
+            "Snowflake Cortex",
+            "Groq (GPT-OSS 20B)",
+        ],
+        key="ai_provider",
+    )
+
+    provider_name = {
+        "Snowflake Cortex": "snowflake",
+        "Groq (GPT-OSS 20B)": "openai",
+    }[provider]
+
+    try:
+        current_provider = controller.get_provider()
+
+        if current_provider != provider_name:
+            logger.info(
+                "UI provider selection changed | from=%s | to=%s",
+                current_provider,
+                provider_name,
+            )
+            controller.set_provider(provider_name)
+        else:
+            logger.debug(
+                "UI provider unchanged | provider=%s",
+                provider_name,
+            )
+
+    except Exception as exc:
+        logger.exception(
+            "UI provider selection failed | provider=%s",
+            provider_name,
+        )
+        st.error(f"Unable to select {provider}: {exc}")
+
+    # -----------------------------------------------------
+    # Knowledge base document upload
+    # -----------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Knowledge base</div>
+        <div class="ra-section-title">Upload documents</div>
+        <div class="ra-helper">
+            Upload PDF, DOCX, Markdown, or TXT files to add
+            new knowledge to the customer-support system.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        uploaded_files = st.file_uploader(
+            "Choose documents",
+            type=["pdf", "docx", "md", "txt"],
+            accept_multiple_files=True,
+            help="Maximum 5 files, 20 MB per file.",
+        )
+
+        if uploaded_files:
+            valid_files, upload_errors = validate_uploaded_files(uploaded_files)
+
+            for error in upload_errors:
+                logger.warning("Upload validation error: %s", error)
+                st.error(error)
+
+            if valid_files:
+                st.markdown("**Selected documents**")
+                detected_categories = {}
+
+                for uploaded_file in valid_files:
+                    file_bytes = uploaded_file.getvalue()
+
+                    file_size_mb = len(file_bytes) / (1024 * 1024)
+
+                    detected_category = "Detecting..."
+
+                    if controller.document_store is not None:
+                        detected_category = detect_category_cached(
+                            controller,
+                            file_bytes,
+                            uploaded_file.name,
+                        )
+
+                    detected_categories[uploaded_file.name] = detected_category
+
+                    st.write(
+                        f"📄 **{uploaded_file.name}** "
+                        f"• {file_size_mb:.2f} MB "
+                        f"• **Category: {detected_category}**"
+                    )
+
+                    st.caption("Document ID will be assigned during upload.")
+
+                if st.button(
+                    "⬆️ Upload to Snowflake",
+                    type="primary",
+                    width="stretch",
+                    key="main_upload_to_snowflake",
+                ):
+                    logger.info(
+                        "Document upload action triggered | files=%s",
+                        len(valid_files),
+                    )
+
+                    if controller.document_store is None:
+                        logger.error(
+                            "Document upload requested but document store is unavailable."
+                        )
+                        st.error("Document upload requires Snowflake mode.")
+
+                    else:
+                        successful_uploads = 0
+                        uploaded_document_ids = []
+
+                        for uploaded_file in valid_files:
+                            file_bytes = uploaded_file.getvalue()
+
+                            try:
+                                upload_start = time.perf_counter()
+                                logger.info(
+                                    "Document upload started | filename=%s | size_bytes=%s",
+                                    uploaded_file.name,
+                                    len(file_bytes),
+                                )
+
+                                progress_bar = st.progress(0)
+                                progress_status = st.empty()
+
+                                def upload_progress(percent, stage, detail=""):
+                                    progress_bar.progress(
+                                        max(0, min(100, int(percent)))
+                                    )
+                                    message = f"{stage}"
+                                    if detail:
+                                        message += f" • {detail}"
+                                    progress_status.caption(message)
+
+                                upload_progress(
+                                    1, "Starting upload", uploaded_file.name
+                                )
+                                staged_path = controller.document_store.upload_to_stage(
+                                    file_bytes=file_bytes,
+                                    filename=uploaded_file.name,
+                                    document_id=None,
+                                    category=detected_categories.get(
+                                        uploaded_file.name
+                                    ),
+                                    progress_callback=upload_progress,
+                                )
+                                progress_bar.progress(100)
+                                progress_status.caption("Indexed and ready")
+
+                                # DocumentStore owns the canonical ID.
+                                # Returned path:
+                                # @STAGE/<document_id>/<filename>
+
+                                stage_parts = staged_path.split(
+                                    "/",
+                                    2,
+                                )
+
+                                document_id = (
+                                    stage_parts[1]
+                                    if len(stage_parts) >= 2
+                                    else "Unknown"
+                                )
+
+                                if document_id != "Unknown":
+                                    uploaded_document_ids.append(document_id)
+
+                                st.success(
+                                    f"{uploaded_file.name} uploaded successfully."
+                                )
+
+                                st.caption(f"Document ID: {document_id}")
+
+                                st.caption(f"Stage: {staged_path}")
+
+                                successful_uploads += 1
+
+                                logger.info(
+                                    "Document upload completed | filename=%s | duration=%.3fs",
+                                    uploaded_file.name,
+                                    time.perf_counter() - upload_start,
+                                )
+
+                            except Exception as exc:
+                                logger.exception(
+                                    "Document upload failed | filename=%s | duration=%.3fs",
+                                    uploaded_file.name,
+                                    time.perf_counter() - upload_start,
+                                )
+                                st.error(
+                                    f"Failed to upload {uploaded_file.name}: {exc}"
+                                )
+
+                        if successful_uploads:
+                            st.session_state["supportai_pending_document_ids"] = sorted(
+                                set(uploaded_document_ids)
+                            )
+                            logger.info(
+                                "Pending retrieval scope set to newly uploaded documents | document_count=%s",
+                                len(uploaded_document_ids),
+                            )
+                            st.info(
+                                f"{successful_uploads} document(s) uploaded to Snowflake."
+                            )
+
+    # -----------------------------------------------------
+    # FAQ / customer support
+    # -----------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="ra-section-label">Customer support</div>
+        <div class="ra-section-title">Ask your policy question</div>
+        <div class="ra-helper">
+            Ask about any policy available in the knowledge base.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    question = st.text_area(
+        "Question",
+        placeholder=("Example: Does the warranty cover accidental damage?"),
+        height=118,
+        label_visibility="collapsed",
+        key="supportai_question",
+    )
+
+    st.markdown(
+        '<div style="height:6px;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns([3.15, 1])
+
+    with col1:
+        ask_clicked = st.button(
+            "✦  Ask SupportAI",
+            type="primary",
+            width="stretch",
+            key="ask_supportai",
+        )
+
+    with col2:
+        clear_clicked = st.button(
+            "↺  Clear",
+            width="stretch",
+            key="clear_supportai",
+        )
+
+    if clear_clicked:
+        logger.info(
+            "Clear button clicked; preserving pending upload scope until the next question."
+        )
+        local_rerun()
+
+    if ask_clicked:
+        if not question.strip():
+            logger.warning("Ask action rejected because question was empty.")
+            st.warning("Please enter a question.")
+            return
+
+        request_start = time.perf_counter()
+
+        logger.info(
+            "UI question processing started | provider=%s | question_length=%s",
+            provider_name,
+            len(question.strip()),
+        )
+
+        rag_service = getattr(controller, "rag_service", None)
+        retriever = getattr(rag_service, "retriever", None) if rag_service else None
+        set_scope = getattr(retriever, "set_document_scope", None)
+        retrieval_document_ids = st.session_state.get(
+            "supportai_pending_document_ids",
+            [],
+        )
+
+        try:
+            # The upload scope exists only for THIS question. With no pending
+            # upload scope, the retriever searches the complete knowledge base.
+            if callable(set_scope):
+                set_scope(retrieval_document_ids or None)
+
+            request_status = st.empty()
+            render_processing_indicator(
+                f"Retrieving evidence and generating with {provider}...",
+                request_status,
+            )
+            response = controller.ask(question.strip())
+            request_status.empty()
+
+            elapsed = time.perf_counter() - request_start
+
+            logger.info(
+                "UI question processing completed | provider=%s | duration=%.3fs | evidence=%s",
+                provider_name,
+                elapsed,
+                len(response.evidence or []),
+            )
+
+            render_response(
+                response,
+                question,
+                provider,
+                elapsed,
+            )
+
+        except ValueError as exc:
+            logger.warning(
+                "UI question validation failed | provider=%s | error=%s",
+                provider_name,
+                exc,
+            )
+            st.error(str(exc))
+
+        except RuntimeError as exc:
+            logger.exception(
+                "UI request failed with runtime error | provider=%s | duration=%.3fs",
+                provider_name,
+                time.perf_counter() - request_start,
+            )
+            st.error(str(exc))
+
+        except Exception:
+            logger.exception(
+                "Unexpected UI request failure | provider=%s | duration=%.3fs",
+                provider_name,
+                time.perf_counter() - request_start,
+            )
+            st.error(
+                f"{provider} could not generate a response. "
+                "Please check the provider configuration and try again."
+            )
+
+        finally:
+            # Consume the one-question upload preference regardless of whether
+            # the request succeeded. The document itself remains in Snowflake
+            # and is searchable normally on future questions.
+            st.session_state.pop("supportai_pending_document_ids", None)
+            if callable(set_scope):
+                set_scope(None)
+            logger.info(
+                "Question-scoped retrieval preference cleared; complete knowledge base is active."
+            )
+
+
+if FRAGMENT_AVAILABLE:
+    _render_support_ai_fragment = st.fragment(_render_support_ai_impl)
+else:
+    _render_support_ai_fragment = _render_support_ai_impl
+
+if FRAGMENT_AVAILABLE:
+    render_document_management = st.fragment(_render_document_management_impl)
+else:
+    render_document_management = _render_document_management_impl
+
+
+def render_welcome_animation() -> None:
+    """Show a one-time, non-blocking 11-second welcome animation."""
+    if st.session_state.get("supportai_welcome_shown", False):
+        return
+
+    st.session_state["supportai_welcome_shown"] = True
+
+    st.markdown(
+        textwrap.dedent(
+            """
+        <style>
+        .supportai-welcome-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 18% 20%, rgba(99,102,241,0.22), transparent 34%),
+                radial-gradient(circle at 82% 24%, rgba(14,165,233,0.20), transparent 34%),
+                radial-gradient(circle at 50% 90%, rgba(168,85,247,0.18), transparent 38%),
+                linear-gradient(135deg, #0b1220 0%, #111827 48%, #1e1b4b 100%);
+            animation: supportai-welcome-exit 0.9s ease 10.1s forwards;
+        }
+
+        .supportai-welcome-orb {
+            position: absolute;
+            width: 34vw;
+            height: 34vw;
+            min-width: 280px;
+            min-height: 280px;
+            border-radius: 50%;
+            filter: blur(30px);
+            opacity: 0.28;
+            animation: supportai-welcome-float 6s ease-in-out infinite alternate;
+        }
+
+        .supportai-welcome-orb.one {
+            top: -10vw;
+            left: -8vw;
+            background: #6366f1;
+        }
+
+        .supportai-welcome-orb.two {
+            right: -10vw;
+            bottom: -12vw;
+            background: #0ea5e9;
+            animation-delay: -2s;
+        }
+
+        .supportai-welcome-card {
+            position: relative;
+            width: min(760px, 88vw);
+            text-align: center;
+            color: white;
+            padding: 48px 28px 42px;
+            border-radius: 28px;
+            background: rgba(15, 23, 42, 0.52);
+            border: 1px solid rgba(255,255,255,0.15);
+            box-shadow:
+                0 30px 80px rgba(0,0,0,0.35),
+                inset 0 1px 0 rgba(255,255,255,0.08);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            animation: supportai-welcome-card-in 1.1s cubic-bezier(.2,.8,.2,1) both;
+        }
+
+        .supportai-welcome-icon {
+            width: 74px;
+            height: 74px;
+            margin: 0 auto 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 22px;
+            font-size: 38px;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.20);
+            box-shadow: 0 0 0 10px rgba(255,255,255,0.025);
+            animation: supportai-welcome-pulse 2.2s ease-in-out infinite;
+        }
+
+        .supportai-welcome-kicker {
+            margin-bottom: 10px;
+            color: #c7d2fe;
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            animation: supportai-welcome-rise 0.9s ease 0.15s both;
+        }
+
+        .supportai-welcome-title {
+            margin: 0;
+            font-size: clamp(2.7rem, 7vw, 5rem);
+            line-height: 1;
+            font-weight: 850;
+            letter-spacing: -0.045em;
+            background: linear-gradient(90deg, #ffffff 0%, #e0e7ff 50%, #bae6fd 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: supportai-welcome-rise 0.95s ease 0.28s both;
+        }
+
+        .supportai-welcome-subtitle {
+            max-width: 650px;
+            margin: 18px auto 0;
+            color: #cbd5e1;
+            font-size: clamp(1rem, 2vw, 1.18rem);
+            line-height: 1.65;
+            animation: supportai-welcome-rise 0.95s ease 0.48s both;
+        }
+
+        .supportai-welcome-status {
+            margin: 28px auto 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            color: #e2e8f0;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.12);
+            font-size: 0.82rem;
+            font-weight: 700;
+            animation: supportai-welcome-rise 0.95s ease 0.66s both;
+        }
+
+        .supportai-welcome-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 0 5px rgba(34,197,94,0.11);
+            animation: supportai-welcome-dot 1.4s ease-in-out infinite;
+        }
+
+        .supportai-welcome-bar {
+            width: min(420px, 72vw);
+            height: 4px;
+            margin: 24px auto 0;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.10);
+            animation: supportai-welcome-rise 0.9s ease 0.82s both;
+        }
+
+        .supportai-welcome-bar::after {
+            content: "";
+            display: block;
+            height: 100%;
+            width: 18%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #6366f1, #38bdf8);
+            animation: supportai-welcome-progress 10s linear 0.95s forwards;
+        }
+
+        @keyframes supportai-welcome-card-in {
+            from { opacity: 0; transform: translateY(18px) scale(0.985); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @keyframes supportai-welcome-rise {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes supportai-welcome-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.045); }
+        }
+
+        @keyframes supportai-welcome-float {
+            from { transform: translate3d(0, 0, 0) scale(0.95); }
+            to { transform: translate3d(22px, -18px, 0) scale(1.08); }
+        }
+
+        @keyframes supportai-welcome-dot {
+            0%, 100% { opacity: 0.7; transform: scale(0.92); }
+            50% { opacity: 1; transform: scale(1.08); }
+        }
+
+        @keyframes supportai-welcome-progress {
+            from { width: 18%; }
+            to { width: 100%; }
+        }
+
+        @keyframes supportai-welcome-exit {
+            0% { opacity: 1; visibility: visible; pointer-events: auto; }
+            82% { opacity: 1; visibility: visible; }
+            100% { opacity: 0; visibility: hidden; pointer-events: none; }
+        }
+
+        @media (max-width: 768px) {
+            .supportai-welcome-card {
+                padding: 38px 20px 34px;
+                border-radius: 22px;
+            }
+            .supportai-welcome-icon {
+                width: 62px;
+                height: 62px;
+                border-radius: 18px;
+                font-size: 31px;
+            }
+        }
+        </style>
+
+        <div class="supportai-welcome-overlay" aria-label="Welcome to SupportAI">
+            <div class="supportai-welcome-orb one"></div>
+            <div class="supportai-welcome-orb two"></div>
+            <div class="supportai-welcome-card">
+                <div class="supportai-welcome-icon">✦</div>
+                <div class="supportai-welcome-kicker">Welcome to</div>
+                <h1 class="supportai-welcome-title">SupportAI</h1>
+                <div class="supportai-welcome-subtitle">
+                    Your AI-powered customer support assistant,
+                    grounded in trusted policy knowledge.
+                </div>
+                <div class="supportai-welcome-status">
+                    <span class="supportai-welcome-dot"></span>
+                    Preparing your intelligent support workspace
+                </div>
+                <div class="supportai-welcome-bar"></div>
+            </div>
+        </div>
+            """
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def run_app(
@@ -1177,6 +2022,7 @@ def run_app(
     )
 
     inject_box_styles()
+    render_welcome_animation()
 
     # ---------------------------------------------------------
     # Product hero
@@ -1225,320 +2071,7 @@ def run_app(
     # =========================================================
 
     with main_tab:
-        # -----------------------------------------------------
-        # AI provider selection
-        # -----------------------------------------------------
-
-        st.markdown(
-            """
-            <div class="ra-section-label">Generation</div>
-            <div class="ra-section-title">AI Provider</div>
-            <div class="ra-helper">
-                Select the provider to use for the next response.
-                Retrieval continues through Snowflake Cortex Search.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        provider = st.selectbox(
-            "AI Provider",
-            [
-                "Snowflake Cortex",
-                "OpenRouter (OpenAI)",
-            ],
-            key="ai_provider",
-        )
-
-        provider_name = {
-            "Snowflake Cortex": "snowflake",
-            "OpenRouter (OpenAI)": "openai",
-        }[provider]
-
-        try:
-            current_provider = controller.get_provider()
-
-            if current_provider != provider_name:
-                logger.info(
-                    "UI provider selection changed | from=%s | to=%s",
-                    current_provider,
-                    provider_name,
-                )
-                controller.set_provider(provider_name)
-            else:
-                logger.debug(
-                    "UI provider unchanged | provider=%s",
-                    provider_name,
-                )
-
-        except Exception as exc:
-            logger.exception(
-                "UI provider selection failed | provider=%s",
-                provider_name,
-            )
-            st.error(f"Unable to select {provider}: {exc}")
-
-        # -----------------------------------------------------
-        # Knowledge base document upload
-        # -----------------------------------------------------
-
-        st.markdown(
-            """
-            <div class="ra-section-label">Knowledge base</div>
-            <div class="ra-section-title">Upload documents</div>
-            <div class="ra-helper">
-                Upload PDF, DOCX, Markdown, or TXT files to add
-                new knowledge to the customer-support system.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        with st.container(border=True):
-            uploaded_files = st.file_uploader(
-                "Choose documents",
-                type=["pdf", "docx", "md", "txt"],
-                accept_multiple_files=True,
-                help="Maximum 5 files, 20 MB per file.",
-            )
-
-            if uploaded_files:
-                valid_files, upload_errors = validate_uploaded_files(uploaded_files)
-
-                for error in upload_errors:
-                    logger.warning("Upload validation error: %s", error)
-                    st.error(error)
-
-                if valid_files:
-                    st.markdown("**Selected documents**")
-
-                    for uploaded_file in valid_files:
-                        file_bytes = uploaded_file.getvalue()
-
-                        file_size_mb = len(file_bytes) / (1024 * 1024)
-
-                        detected_category = "Detecting..."
-
-                        if controller.document_store is not None:
-                            try:
-                                detected_category = (
-                                    controller.document_store.detect_category_from_file(
-                                        file_bytes,
-                                        uploaded_file.name,
-                                    )
-                                )
-                            except Exception:
-                                logger.exception(
-                                    "Document category detection failed | filename=%s",
-                                    uploaded_file.name,
-                                )
-                                detected_category = "Unable to detect"
-
-                        st.write(
-                            f"📄 **{uploaded_file.name}** "
-                            f"• {file_size_mb:.2f} MB "
-                            f"• **Category: {detected_category}**"
-                        )
-
-                        st.caption("Document ID will be assigned during upload.")
-
-                    if st.button(
-                        "⬆️ Upload to Snowflake",
-                        type="primary",
-                        width="stretch",
-                        key="main_upload_to_snowflake",
-                    ):
-                        logger.info(
-                            "Document upload action triggered | files=%s",
-                            len(valid_files),
-                        )
-
-                        if controller.document_store is None:
-                            logger.error(
-                                "Document upload requested but document store is unavailable."
-                            )
-                            st.error("Document upload requires Snowflake mode.")
-
-                        else:
-                            successful_uploads = 0
-
-                            for uploaded_file in valid_files:
-                                file_bytes = uploaded_file.getvalue()
-
-                                try:
-                                    upload_start = time.perf_counter()
-                                    logger.info(
-                                        "Document upload started | filename=%s | size_bytes=%s",
-                                        uploaded_file.name,
-                                        len(file_bytes),
-                                    )
-
-                                    staged_path = (
-                                        controller.document_store.upload_to_stage(
-                                            file_bytes=file_bytes,
-                                            filename=uploaded_file.name,
-                                            document_id=None,
-                                            category=None,
-                                        )
-                                    )
-
-                                    # DocumentStore owns the canonical ID.
-                                    # Returned path:
-                                    # @STAGE/<document_id>/<filename>
-
-                                    stage_parts = staged_path.split(
-                                        "/",
-                                        2,
-                                    )
-
-                                    document_id = (
-                                        stage_parts[1]
-                                        if len(stage_parts) >= 2
-                                        else "Unknown"
-                                    )
-
-                                    st.success(
-                                        f"{uploaded_file.name} uploaded successfully."
-                                    )
-
-                                    st.caption(f"Document ID: {document_id}")
-
-                                    st.caption(f"Stage: {staged_path}")
-
-                                    successful_uploads += 1
-
-                                    logger.info(
-                                        "Document upload completed | filename=%s | duration=%.3fs",
-                                        uploaded_file.name,
-                                        time.perf_counter() - upload_start,
-                                    )
-
-                                except Exception as exc:
-                                    logger.exception(
-                                        "Document upload failed | filename=%s | duration=%.3fs",
-                                        uploaded_file.name,
-                                        time.perf_counter() - upload_start,
-                                    )
-                                    st.error(
-                                        f"Failed to upload {uploaded_file.name}: {exc}"
-                                    )
-
-                            if successful_uploads:
-                                st.info(
-                                    f"{successful_uploads} document(s) "
-                                    "uploaded to Snowflake."
-                                )
-
-        # -----------------------------------------------------
-        # FAQ / customer support
-        # -----------------------------------------------------
-
-        st.markdown(
-            """
-            <div class="ra-section-label">Customer support</div>
-            <div class="ra-section-title">Ask your policy question</div>
-            <div class="ra-helper">
-                Ask about any policy available in the knowledge base.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        question = st.text_area(
-            "Question",
-            placeholder=("Example: Does the warranty cover accidental damage?"),
-            height=118,
-            label_visibility="collapsed",
-            key="supportai_question",
-        )
-
-        st.markdown(
-            '<div style="height:6px;"></div>',
-            unsafe_allow_html=True,
-        )
-
-        col1, col2 = st.columns([3.15, 1])
-
-        with col1:
-            ask_clicked = st.button(
-                "✦  Ask SupportAI",
-                type="primary",
-                width="stretch",
-                key="ask_supportai",
-            )
-
-        with col2:
-            clear_clicked = st.button(
-                "↺  Clear",
-                width="stretch",
-                key="clear_supportai",
-            )
-
-        if clear_clicked:
-            logger.info("Clear button clicked.")
-            st.rerun()
-
-        if ask_clicked:
-            if not question.strip():
-                logger.warning("Ask action rejected because question was empty.")
-                st.warning("Please enter a question.")
-                return
-
-            request_start = time.perf_counter()
-
-            logger.info(
-                "UI question processing started | provider=%s | question_length=%s",
-                provider_name,
-                len(question.strip()),
-            )
-
-            try:
-                with st.spinner(
-                    f"Retrieving evidence and generating with {provider}..."
-                ):
-                    response = controller.ask(question.strip())
-
-                elapsed = time.perf_counter() - request_start
-
-                logger.info(
-                    "UI question processing completed | provider=%s | duration=%.3fs | evidence=%s",
-                    provider_name,
-                    elapsed,
-                    len(response.evidence or []),
-                )
-
-                render_response(
-                    response,
-                    question,
-                    provider,
-                )
-
-            except ValueError as exc:
-                logger.warning(
-                    "UI question validation failed | provider=%s | error=%s",
-                    provider_name,
-                    exc,
-                )
-                st.error(str(exc))
-
-            except RuntimeError as exc:
-                logger.exception(
-                    "UI request failed with runtime error | provider=%s | duration=%.3fs",
-                    provider_name,
-                    time.perf_counter() - request_start,
-                )
-                st.error(str(exc))
-
-            except Exception:
-                logger.exception(
-                    "Unexpected UI request failure | provider=%s | duration=%.3fs",
-                    provider_name,
-                    time.perf_counter() - request_start,
-                )
-                st.error(
-                    f"{provider} could not generate a response. "
-                    "Please check the provider configuration and try again."
-                )
+        _render_support_ai_fragment(controller)
 
     # =========================================================
     # DOCUMENT MANAGEMENT TAB

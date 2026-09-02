@@ -75,7 +75,6 @@ def normalize_source(value: str) -> str:
 
 def is_refusal(answer: str) -> bool:
     text = str(answer or "").strip().lower()
-
     return any(phrase in text for phrase in REFUSAL_PHRASES)
 
 
@@ -148,10 +147,10 @@ def main() -> None:
             "error": "snowflake_error",
             "time": "snowflake_response_time_sec",
         },
-        "OpenRouter": {
-            "answer": "openrouter_answer",
-            "error": "openrouter_error",
-            "time": "openrouter_response_time_sec",
+        "Groq (GPT-OSS 20B)": {
+            "answer": "groq_answer",
+            "error": "groq_error",
+            "time": "groq_response_time_sec",
         },
     }
 
@@ -211,9 +210,8 @@ def main() -> None:
                 ),
             )
 
-            if source_ok:
+            if source_ok != "":
                 source_applicable_count += 1
-
                 if source_ok == "true":
                     source_correct_count += 1
 

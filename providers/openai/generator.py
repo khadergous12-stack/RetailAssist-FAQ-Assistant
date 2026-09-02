@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 from config.settings import Settings, load_settings
@@ -23,16 +24,15 @@ logger = logging.getLogger(__name__)
 
 class OpenAIGenerator:
     """
-    OpenRouter-backed implementation of the provider-neutral
+    Groq-backed implementation of the provider-neutral
     Generator contract.
 
-    OpenRouter exposes an OpenAI-compatible API.
+    Groq exposes an OpenAI-compatible API.
 
     Logging in this class is diagnostic only. It records provider activity,
     timing, and failures without logging API keys or the full prompt.
 
-    Grok 4.3 reasoning is disabled through OpenRouter's extra_body
-    parameter so this remains compatible with the installed OpenAI SDK.
+    Uses Groq through the OpenAI-compatible Chat Completions API.
     """
 
     def __init__(
@@ -43,143 +43,149 @@ class OpenAIGenerator:
     ):
         settings = settings or load_settings()
 
-        self.api_key = api_key or settings.openrouter_api_key
-        self.model = model or settings.openrouter_model
-        self.max_tokens = settings.openrouter_max_tokens
+        self.api_key = (
+            api_key
+            or os.getenv("GROQ_API_KEY")
+            or getattr(settings, "openrouter_api_key", None)
+        )
+        self.model = model or os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
+        self.max_tokens = int(
+            os.getenv("GROQ_MAX_TOKENS")
+            or getattr(settings, "openrouter_max_tokens", 256)
+        )
+        self.timeout = int(
+            os.getenv("GROQ_TIMEOUT") or getattr(settings, "openrouter_timeout", 60)
+        )
 
         if not self.api_key:
-            logger.error("OpenRouter initialization failed: API key is not configured.")
-            raise ValueError(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY."
-            )
+            logger.error("Groq initialization failed: API key is not configured.")
+            raise ValueError("Groq API key is not configured. Set GROQ_API_KEY.")
 
         if not self.model:
-            logger.error("OpenRouter initialization failed: model is not configured.")
-            raise ValueError(
-                "OpenRouter model is not configured. Set OPENROUTER_MODEL."
-            )
+            logger.error("Groq initialization failed: model is not configured.")
+            raise ValueError("Groq model is not configured. Set GROQ_MODEL.")
 
         logger.info(
-            "Initializing OpenRouter generator | model=%s | max_tokens=%s | timeout=%ss",
+            "Initializing Groq generator | model=%s | max_tokens=%s | timeout=%ss",
             self.model,
             self.max_tokens,
-            settings.openrouter_timeout,
+            self.timeout,
         )
 
         try:
             self.client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
+                base_url="https://api.groq.com/openai/v1",
                 api_key=self.api_key,
-                timeout=settings.openrouter_timeout,
+                timeout=self.timeout,
             )
 
             logger.info(
-                "OpenRouter generator initialized successfully | model=%s",
+                "Groq generator initialized successfully | model=%s",
                 self.model,
             )
 
         except Exception:
             logger.exception(
-                "Failed to initialize OpenRouter client | model=%s",
+                "Failed to initialize Groq client | model=%s",
                 self.model,
             )
             raise
 
+    def _call_model(self, model: str, prompt: str):
+        return self.client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            max_tokens=self.max_tokens,
+        )
+
     def generate(self, prompt: str) -> str:
         if not prompt or not prompt.strip():
-            logger.warning("OpenRouter generation skipped because prompt was empty.")
+            logger.warning("Groq generation skipped because prompt was empty.")
             raise ValueError("Prompt cannot be empty.")
 
         start_time = time.perf_counter()
 
         logger.info(
-            "OpenRouter generation started | model=%s | max_tokens=%s | prompt_length=%s",
+            "Groq generation started | model=%s | max_tokens=%s | prompt_length=%s",
             self.model,
             self.max_tokens,
             len(prompt),
         )
 
-        # A successful HTTP response can occasionally contain no usable
-        # assistant content. Retry once before surfacing the failure to the UI.
-        # This is intentionally limited to one retry to avoid long delays.
+        # Retry once only when the provider returns an empty response.
         max_attempts = 2
+        active_model = self.model
 
         for attempt in range(1, max_attempts + 1):
             attempt_start = time.perf_counter()
 
             logger.info(
-                "OpenRouter API attempt started | attempt=%s/%s",
+                "Groq API attempt started | attempt=%s/%s | model=%s",
                 attempt,
                 max_attempts,
+                active_model,
             )
 
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        }
-                    ],
-                    max_tokens=self.max_tokens,
-                    extra_body={"reasoning": {"effort": "none"}},
-                )
+                response = self._call_model(active_model, prompt)
 
             except AuthenticationError as exc:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.error(
-                    "OpenRouter authentication failed | attempt=%s/%s | duration=%.3fs",
+                    "Groq authentication failed | attempt=%s/%s | duration=%.3fs",
                     attempt,
                     max_attempts,
                     elapsed,
                 )
 
                 raise RuntimeError(
-                    "OpenRouter authentication failed. Check OPENROUTER_API_KEY."
+                    "Groq authentication failed. Check GROQ_API_KEY."
                 ) from exc
 
             except RateLimitError as exc:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.warning(
-                    "OpenRouter rate limit reached | attempt=%s/%s | duration=%.3fs",
+                    "Groq rate limit reached | attempt=%s/%s | duration=%.3fs",
                     attempt,
                     max_attempts,
                     elapsed,
                 )
 
                 raise RuntimeError(
-                    "OpenRouter rate limit reached. Please try again later."
+                    "Groq rate limit reached. Please try again later."
                 ) from exc
 
             except APITimeoutError as exc:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.error(
-                    "OpenRouter request timed out | attempt=%s/%s | duration=%.3fs",
+                    "Groq request timed out | attempt=%s/%s | duration=%.3fs",
                     attempt,
                     max_attempts,
                     elapsed,
                 )
 
-                raise RuntimeError(
-                    "OpenRouter request timed out. Please try again."
-                ) from exc
+                raise RuntimeError("Groq request timed out. Please try again.") from exc
 
             except APIConnectionError as exc:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.error(
-                    "Unable to connect to OpenRouter | attempt=%s/%s | duration=%.3fs",
+                    "Unable to connect to Groq | attempt=%s/%s | duration=%.3fs",
                     attempt,
                     max_attempts,
                     elapsed,
                 )
 
                 raise RuntimeError(
-                    "Unable to connect to OpenRouter. "
+                    "Unable to connect to Groq. "
                     "Check your network connection and try again."
                 ) from exc
 
@@ -187,7 +193,7 @@ class OpenAIGenerator:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.error(
-                    "OpenRouter rejected the request | attempt=%s/%s | duration=%.3fs | model=%s",
+                    "Groq rejected the request | attempt=%s/%s | duration=%.3fs | model=%s",
                     attempt,
                     max_attempts,
                     elapsed,
@@ -195,7 +201,7 @@ class OpenAIGenerator:
                 )
 
                 raise RuntimeError(
-                    "OpenRouter rejected the request. "
+                    "Groq rejected the request. "
                     "Check the selected model and request configuration."
                 ) from exc
 
@@ -203,38 +209,36 @@ class OpenAIGenerator:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.error(
-                    "OpenRouter API request failed | http_status=%s | attempt=%s/%s | duration=%.3fs | model=%s",
+                    "Groq API request failed | http_status=%s | attempt=%s/%s | duration=%.3fs | model=%s",
                     exc.status_code,
                     attempt,
                     max_attempts,
                     elapsed,
-                    self.model,
+                    active_model,
                 )
 
                 raise RuntimeError(
-                    f"OpenRouter request failed (HTTP {exc.status_code}). Please try again."
+                    f"Groq request failed (HTTP {exc.status_code}). Please try again."
                 ) from exc
 
             except Exception as exc:
                 elapsed = time.perf_counter() - attempt_start
 
                 logger.exception(
-                    "Unexpected OpenRouter generation failure | attempt=%s/%s | duration=%.3fs | model=%s",
+                    "Unexpected Groq generation failure | attempt=%s/%s | duration=%.3fs | model=%s",
                     attempt,
                     max_attempts,
                     elapsed,
                     self.model,
                 )
 
-                raise RuntimeError(
-                    "OpenRouter generation failed. Please try again."
-                ) from exc
+                raise RuntimeError("Groq generation failed. Please try again.") from exc
 
             attempt_elapsed = time.perf_counter() - attempt_start
 
             if not response.choices:
                 logger.warning(
-                    "OpenRouter returned no choices | attempt=%s/%s | duration=%.3fs | response_model=%s",
+                    "Groq returned no choices | attempt=%s/%s | duration=%.3fs | response_model=%s",
                     attempt,
                     max_attempts,
                     attempt_elapsed,
@@ -243,15 +247,15 @@ class OpenAIGenerator:
 
                 if attempt < max_attempts:
                     logger.info(
-                        "Retrying OpenRouter request because no choices were returned."
+                        "Retrying Groq request because no choices were returned."
                     )
                     continue
 
                 logger.error(
-                    "OpenRouter returned no choices after retrying | total_duration=%.3fs",
+                    "Groq returned no choices after retrying | total_duration=%.3fs",
                     time.perf_counter() - start_time,
                 )
-                raise RuntimeError("OpenRouter returned no choices.")
+                raise RuntimeError("Groq returned no choices.")
 
             choice = response.choices[0]
             message = getattr(choice, "message", None)
@@ -262,14 +266,14 @@ class OpenAIGenerator:
 
                 if total_elapsed > 10:
                     logger.warning(
-                        "Slow OpenRouter generation detected | duration=%.3fs | model=%s | attempts=%s",
+                        "Slow Groq generation detected | duration=%.3fs | model=%s | attempts=%s",
                         total_elapsed,
-                        self.model,
+                        active_model,
                         attempt,
                     )
                 else:
                     logger.info(
-                        "OpenRouter generation completed successfully | duration=%.3fs | response_length=%s | attempts=%s",
+                        "Groq generation completed successfully | duration=%.3fs | response_length=%s | attempts=%s",
                         total_elapsed,
                         len(str(answer)),
                         attempt,
@@ -280,7 +284,7 @@ class OpenAIGenerator:
             finish_reason = getattr(choice, "finish_reason", None)
 
             logger.warning(
-                "OpenRouter returned an unusable empty content response | "
+                "Groq returned an unusable empty content response | "
                 "attempt=%s/%s | attempt_duration=%.3fs | finish_reason=%s | response_model=%s",
                 attempt,
                 max_attempts,
@@ -291,20 +295,20 @@ class OpenAIGenerator:
 
             if attempt < max_attempts:
                 logger.info(
-                    "Retrying OpenRouter request because assistant content was empty."
+                    "Retrying Groq request because assistant content was empty."
                 )
                 continue
 
             total_elapsed = time.perf_counter() - start_time
 
             logger.error(
-                "OpenRouter returned an empty response after retrying | total_duration=%.3fs | attempts=%s",
+                "Groq returned an empty response after retrying | total_duration=%.3fs | attempts=%s",
                 total_elapsed,
                 attempt,
             )
 
-            raise RuntimeError("OpenRouter returned an empty response.")
+            raise RuntimeError("Groq returned an empty response.")
 
         # Defensive fallback; the loop should always return or raise.
-        logger.error("OpenRouter generation ended without a response.")
-        raise RuntimeError("OpenRouter generation failed. Please try again.")
+        logger.error("Groq generation ended without a response.")
+        raise RuntimeError("Groq generation failed. Please try again.")

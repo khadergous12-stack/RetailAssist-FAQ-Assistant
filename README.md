@@ -1,8 +1,8 @@
 # SupportAI
 
-A policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, Retrieval-Augmented Generation (RAG), and Snowflake Cortex Search.
+SupportAI is a policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, Retrieval-Augmented Generation (RAG), and Snowflake Cortex Search.
 
-The extended version adds **multi-provider generation** and **dynamic document management**. Users can upload PDF, DOCX, TXT, and Markdown documents through the Streamlit UI, store and process them in Snowflake, retrieve relevant evidence through the same Cortex Search service, and choose at runtime between **Snowflake Cortex** and **OpenRouter** for answer generation.
+The extended version adds **multi-provider generation** and **dynamic document management**. Users can upload PDF, DOCX, TXT, and Markdown documents through the Streamlit UI, store and process them in Snowflake, retrieve relevant evidence through the same Cortex Search service, and choose at runtime between **Snowflake Cortex** and **OpenRouter (Grok 4.3)** for answer generation.
 
 ---
 
@@ -12,7 +12,7 @@ The extended version adds **multi-provider generation** and **dynamic document m
 - Retrieval-Augmented Generation (RAG)
 - Snowflake Cortex Search as the retrieval layer
 - Snowflake Cortex generation support
-- OpenRouter generation support through the OpenAI-compatible API
+- OpenRouter generation using the OpenAI-compatible API with **Grok 4.3**
 - Runtime AI-provider selection from the Streamlit UI
 - Dynamic document upload from the Streamlit UI
 - PDF, DOCX, TXT, and Markdown document support
@@ -27,6 +27,12 @@ The extended version adds **multi-provider generation** and **dynamic document m
 - Graceful provider error handling
 - Local/demo mode for development and testing
 - Automated tests and 20-question provider evaluation
+- Document-upload progress from validation through indexing
+- Inline processing spinner for questions and document-management actions
+- Streamlit fragment-based UI updates to reduce unnecessary full-page reruns
+- One-question retrieval preference for a newly uploaded document, followed by normal all-active-document retrieval
+- Retrieval and generation latency shown with each answer
+- Structured logging for uploads, parsing, chunking, indexing, retrieval, generation, and document-management actions
 
 ---
 
@@ -36,46 +42,46 @@ The application keeps **retrieval independent from generation**.
 
 ```text
                          ┌────────────────────────┐
-                         │      Streamlit UI       │
-                         │  FAQ + Document Upload  │
-                         │    + AI Provider UI     │
+                         │      Streamlit UI      │
+                         │ FAQ + Document Upload  │
+                         │   + AI Provider UI     │
                          └────────────┬───────────┘
                                       │
                                       ▼
                          ┌────────────────────────┐
-                         │      Controller         │
-                         │ RetailAssistController  │
+                         │       Controller       │
+                         │ RetailAssistController │
                          └────────────┬───────────┘
                                       │
                                       ▼
                          ┌────────────────────────┐
-                         │       RAGService        │
-                         │ Provider-neutral RAG    │
+                         │       RAGService       │
+                         │ Provider-neutral RAG   │
                          └────────────┬───────────┘
                                       │
                          ┌────────────┴────────────┐
                          │                         │
                          ▼                         ▼
-                ┌─────────────────┐       ┌─────────────────┐
-                │    Retriever    │       │    Generator    │
-                │     Contract    │       │     Contract    │
-                └────────┬────────┘       └────────┬────────┘
-                         │                         │
-                         ▼                         ▼
-                ┌─────────────────┐       ┌─────────────────┐
-                │ Snowflake       │       │ Provider Factory│
-                │ Cortex Search   │       └────────┬────────┘
-                └────────┬────────┘                │
-                         │                ┌─────────┴─────────┐
-                         │                │                   │
-                         ▼                ▼                   ▼
-                ┌─────────────────┐  Snowflake          OpenRouter
-                │ Final Evidence  │  Cortex             Generator
-                └────────┬────────┘  Generator
-                         │
-                         └──────────────┬───────────────────┘
-                                        ▼
-                              Grounded Prompt / Answer
+                  ┌─────────────────┐      ┌─────────────────┐
+                  │    Retriever    │      │    Generator    │
+                  │     Contract    │      │     Contract    │
+                  └────────┬────────┘      └────────┬────────┘
+                           │                        │
+                           ▼                        ▼
+                  ┌─────────────────┐      ┌─────────────────┐
+                  │ Snowflake       │      │ Provider Factory│
+                  │ Cortex Search   │      └────────┬────────┘
+                  └────────┬────────┘               │
+                           │               ┌─────────┴─────────┐
+                           │               │                   │
+                           ▼               ▼                   ▼
+                  ┌─────────────────┐  Snowflake          OpenRouter
+                  │ Final Evidence  │  Cortex             / Grok 4.3
+                  └────────┬────────┘  Generator           Generator
+                           │
+                           └──────────────┬────────────────────┘
+                                          ▼
+                                Grounded Prompt / Answer
 ```
 
 ### Provider-selection flow
@@ -90,14 +96,14 @@ RAG Evidence Filtering
 Same Retrieved Context
      ├───────────────┐
      ▼               ▼
-Snowflake Cortex   OpenRouter
+Snowflake Cortex  OpenRouter (Grok 4.3)
      │               │
      └───────┬───────┘
              ▼
-       Final Answer
+        Final Answer
 ```
 
-**Important:** OpenRouter is a generation provider only. It does not replace Snowflake Cortex Search retrieval.
+**Important:** OpenRouter is a **generation provider only**. It does not replace Snowflake Cortex Search retrieval.
 
 ---
 
@@ -105,9 +111,9 @@ Snowflake Cortex   OpenRouter
 
 ## 1. Snowflake Cortex
 
-The default provider uses the existing Snowflake-backed generation implementation.
+The default provider uses the Snowflake-backed generation implementation.
 
-## 2. OpenRouter
+## 2. OpenRouter (Grok 4.3)
 
 OpenRouter is used through its OpenAI-compatible API.
 
@@ -117,7 +123,7 @@ The provider adapter lives under:
 providers/openai/generator.py
 ```
 
-The adapter uses the OpenAI Python SDK with the OpenRouter API endpoint.
+The UI presents this provider as **OpenRouter (Grok 4.3)**. The internal provider identifier remains the existing OpenAI-compatible adapter name so the provider factory and RAG contracts remain unchanged.
 
 ---
 
@@ -125,30 +131,20 @@ The adapter uses the OpenAI Python SDK with the OpenRouter API endpoint.
 
 The main Streamlit interface contains an **AI Provider** dropdown near the top of the page.
 
-```text
-AI Provider
-[ Snowflake Cortex ▼ ]
-```
-
 Available options:
 
 ```text
 Snowflake Cortex
-OpenRouter
+OpenRouter (Grok 4.3)
 ```
 
 Changing the selection affects the **next generation request** without restarting the application.
 
-The active provider is shown with the response:
+The active provider and request latency are shown with the answer:
 
 ```text
-Generated by: Snowflake Cortex
-```
-
-or:
-
-```text
-Generated by: OpenRouter
+Generated by: OpenRouter (Grok 4.3)
+Latency: 1.38s
 ```
 
 The retrieval path remains the same for both providers.
@@ -164,24 +160,23 @@ The main SupportAI tab contains:
 - FAQ interaction
 - Document upload
 - AI provider selection
+- Upload processing progress
 
 The Document Management tab contains:
 
 - Uploaded-document listing
-- Filtering
+- Category/status filtering
 - Metadata inspection
 - Retry
 - Re-index
 - Delete
 - Refresh
 
-This keeps the main FAQ experience focused while still providing administrative document controls.
+Administrative actions display an inline processing spinner while the backend operation runs, and each action is logged with document ID and elapsed time.
 
 ---
 
 # Supported Document Formats
-
-The dynamic upload feature accepts:
 
 | Format | Extension | Supported |
 |---|---|---|
@@ -203,37 +198,50 @@ Validate extension / size / empty file
         ↓
 Create document metadata
         ↓
-Store content in Snowflake
+Upload to Snowflake stage
         ↓
 Parse document content
+        ↓
+Store parsed content
         ↓
 Create searchable chunks
         ↓
 Store chunk metadata
         ↓
-Refresh / wait for Cortex Search indexing
+Refresh Cortex Search
         ↓
-Mark document indexed
+Mark document indexed / ready
         ↓
 Available as RAG evidence
 ```
 
-Supported documents are tracked using metadata such as:
+The UI shows progress through these stages so users can see the pipeline moving from validation to parsing, chunking, storage, and indexing.
 
-- Document ID
-- Original filename
-- Sanitized filename
-- File type
-- File size
-- Content hash
-- Category
-- Processing status
-- Page count
-- Character count
-- Chunk count
-- Active/deleted state
-- Created/updated timestamps
-- Error information
+Backend logs record the document ID, sanitized filename, stage transitions, page/chunk counts, refresh request, processing status, duration, and failures without logging secrets or extracted document content.
+
+---
+
+# Upload Retrieval Scope
+
+A newly uploaded document receives a **temporary one-question retrieval preference**.
+
+```text
+No new upload
+      ↓
+Search all active/indexed documents
+
+New upload
+      ↓
+Next question searches the newly uploaded document(s)
+      ↓
+Temporary scope is consumed
+      ↓
+Future questions search the normal active knowledge base again
+```
+
+The uploaded document remains active and indexed after that question. The **Clear** button only clears the displayed interaction; it does not delete the document or permanently change retrieval scope.
+
+This behavior allows users to immediately test newly uploaded knowledge without locking the application into upload-only retrieval mode.
 
 ---
 
@@ -242,7 +250,7 @@ Supported documents are tracked using metadata such as:
 Typical document states include:
 
 ```text
-UPLOADED
+UPLOADING
 PARSING
 INDEXING
 INDEXED
@@ -252,7 +260,7 @@ DELETED
 
 Only active, indexed uploaded documents should participate in retrieval.
 
-Deleted documents are deactivated and excluded from the active Cortex Search source.
+Deleted documents are deactivated and excluded from the active search source.
 
 ---
 
@@ -318,20 +326,34 @@ Responses can display supporting source information including:
 - Section heading
 - Page number when available for uploaded PDF/DOCX documents
 
-For example:
+Example:
 
 ```text
-Generated by: OpenRouter
+Generated by: OpenRouter (Grok 4.3)
+Latency: 1.38s
 
 Source:
 supportai_shipping_policy.pdf
 
-Page:
-2
-
-Section:
-2. Express Shipping
+Page: 2
+Section: 2. Express Shipping
 ```
+
+---
+
+# UI Performance and Processing Feedback
+
+The UI is designed to avoid unnecessary full-page reruns during interactive operations.
+
+The main SupportAI experience and Document Management experience use Streamlit fragments when the installed Streamlit version supports them. Provider selection and section-level actions therefore remain localized to the relevant part of the page.
+
+Questions use a lightweight **inline spinner** next to the processing status rather than a page-blocking overlay. The spinner communicates that retrieval and generation are running while preserving the normal page layout.
+
+Document-management operations use the same pattern for Retry, Re-index, Delete, and Refresh.
+
+Document upload uses staged progress indicators so the user can see the backend workflow instead of waiting on an unexplained blank state.
+
+The application also records request duration and shows the answer latency in the response metadata.
 
 ---
 
@@ -453,11 +475,9 @@ Example configuration:
 ```env
 RETAIL_ASSIST_MODE=SNOWFLAKE
 RETAIL_ASSIST_LOG_LEVEL=INFO
-
 DEFAULT_AI_PROVIDER=snowflake
-
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
+OPENROUTER_MODEL=x-ai/grok-4.3
 OPENROUTER_MAX_TOKENS=256
 OPENROUTER_TIMEOUT=60
 ```
@@ -509,7 +529,9 @@ The application provides:
 - Policy-grounded responses
 - Supporting evidence
 - Dynamic document upload
+- Document processing progress
 - Document management
+- Inline processing indicators
 
 ---
 
@@ -542,6 +564,7 @@ The multi-provider tests cover:
 - OpenRouter generation success
 - Provider API failure handling
 - RAG-service orchestration
+- Document and retriever contracts where covered by the existing suite
 
 External provider calls are mocked in unit tests so the test suite does not require live or paid provider calls.
 
@@ -558,9 +581,9 @@ data/evaluation_questions.csv
 Every question is evaluated against both:
 
 1. Snowflake Cortex
-2. OpenRouter
+2. OpenRouter (Grok 4.3)
 
-The evaluation retrieves and filters the evidence once and reuses the same final evidence context for both providers.
+The evaluation retrieves and filters the evidence once and reuses the same final evidence context for both generators.
 
 Run:
 
@@ -588,53 +611,32 @@ data/provider_evaluation_summary.csv
 
 ---
 
-# Evaluation Results
+# Latest Evaluation Snapshot
 
-The current 20-question evaluation completed successfully for both providers.
+The latest completed 20-question run observed in development produced:
 
-| Metric | Snowflake Cortex | OpenRouter |
+| Metric | Snowflake Cortex | OpenRouter (Grok 4.3) |
 |---|---:|---:|
 | Questions evaluated | 20/20 | 20/20 |
 | Successful responses | 20/20 | 20/20 |
-| Source-correct retrievals | 12/20 | 12/20 |
+| Source-correct retrievals | 17/18 | 17/18 |
+| Source-correct retrieval rate | 94.4% | 94.4% |
 | Unsupported questions handled | 2/2 | 2/2 |
-| Average response time | 2.781s | 5.055s |
+| Average response time | 2.446s | 1.383s |
 
-### Evaluation interpretation
+The source-correct retrieval metric is based on the answerable questions for which an expected source is defined. The supplied dataset does **not** contain an `expected_answer` field, so a numerical answer-correctness or groundedness percentage is not claimed from the CSV alone.
 
-The identical source-correct retrieval count reflects the architecture: both generators receive the same final retrieved context.
-
-The supplied evaluation dataset contains:
-
-```text
-id
-question
-expected_source
-answerable
-```
-
-but does not contain an `expected_answer` field.
-
-Therefore a numerical correctness/groundedness percentage is not automatically claimed from this dataset alone. Those dimensions require explicit review of each generated answer against the retrieved policy evidence.
+The identical retrieval result is expected because both generation providers receive the same final evidence context.
 
 ---
 
 # Evaluation Observations
 
-The evaluation exposed several useful retrieval-quality cases, including questions where the expected policy source was not selected by the final evidence filter.
+The evaluation retained difficult retrieval cases instead of removing them to make the results look better.
 
-Examples included:
+One answerable question may still select a neighboring or policy-family source even when the broader policy topic is related. These cases remain useful for future retrieval tuning.
 
-```text
-E010 → expected Warranty FAQ
-E011 → expected Warranty FAQ
-E012 → expected Warranty FAQ
-E020 → expected Shipping FAQ
-```
-
-These results are retained as evaluation findings rather than removed to make the metrics look better.
-
-The evaluation also exposed provider-specific response-quality differences. For example, a provider response can be technically successful at the API level while still being unsuitable as a grounded answer. Such cases should be reviewed for correctness and groundedness rather than counted as successful solely because a non-empty string was returned.
+Provider latency is also environment-dependent. The measured run above reflects the conditions under which the evaluation was executed and should not be treated as a fixed production SLA.
 
 ---
 
@@ -656,7 +658,7 @@ generator = create_generator(
 )
 ```
 
-The factory then returns the appropriate implementation.
+The factory returns the appropriate implementation.
 
 This design means adding another generation provider should require changes primarily in:
 
@@ -699,25 +701,38 @@ The application handles:
 - Empty provider responses
 - Retrieval failures
 - Invalid or insufficient evidence
+- Document validation, parsing, chunking, and indexing failures
 
-Provider errors are converted into user-facing messages rather than exposing raw API tracebacks.
+Provider and document errors are converted into user-facing messages while detailed diagnostics remain in the application logs.
 
 The selected provider remains available in the UI after a failed request so the user can retry or change providers.
 
 ---
 
-# Security
+# Logging
 
-Security requirements include:
+The logging layer is designed for operational debugging without exposing secrets or document contents.
 
-- Credentials remain outside source control.
-- `.env` is excluded from Git.
-- `.env.example` contains placeholders only.
-- API keys are not printed in logs.
-- Snowflake credentials are not displayed in the UI.
-- Provider-specific secrets are loaded through configuration.
-- Snowflake-specific code remains inside the provider layer.
-- External provider calls are mocked in automated tests.
+Typical document-management logs include:
+
+```text
+Document ID
+Sanitized filename
+File type / size
+Processing stage
+Parsing start / completion
+Page count
+Chunking start / completion
+Chunk count
+Search refresh request
+Indexing status
+Operation duration
+Exception details on failure
+```
+
+Typical question logs include provider, request duration, evidence count, and provider/retrieval failures where applicable.
+
+The application does **not** intentionally log API keys, credentials, raw extracted document content, raw prompts, or stage file contents.
 
 ---
 
@@ -754,18 +769,15 @@ OPENROUTER_MAX_TOKENS
 OPENROUTER_TIMEOUT
 ```
 
-The current evaluation used:
+The current target model is:
 
 ```text
-OPENROUTER_MODEL=openrouter/free
-OPENROUTER_MAX_TOKENS=256
+x-ai/grok-4.3
 ```
-
-for an account-compatible evaluation configuration.
 
 ## OpenRouter API failure
 
-Check the provider configuration, account credits/model availability, and network connection.
+Check the provider configuration, account credits/model availability, timeout/network conditions, and provider logs. A provider API failure does not imply a retrieval failure because retrieval remains on Snowflake Cortex Search.
 
 ## Uploaded document not retrieved
 
@@ -775,6 +787,8 @@ Debug in this order:
 Upload
   ↓
 Validation
+  ↓
+Stage upload
   ↓
 Content extraction
   ↓
@@ -837,74 +851,74 @@ Run these before merging:
 
 ```powershell
 python -m pytest -q
-```
-
-```powershell
 git status
-```
-
-Verify that `.env` is not tracked:
-
-```powershell
 git ls-files .env
 ```
 
 The final application validation should include:
 
 ```text
-Snowflake Cortex generation       ✓
-OpenRouter generation             ✓
-Runtime provider switching        ✓
-Shared Cortex Search retrieval    ✓
-Grounded RAG evidence             ✓
-PDF upload                        ✓
-DOCX upload                       ✓
-TXT upload                        ✓
-Markdown upload                   ✓
-Document management tab           ✓
-Retry                             ✓
-Re-index                          ✓
-Delete                            ✓
-Provider error handling           ✓
-20-question evaluation            ✓
-Automated tests                   ✓
+Snowflake Cortex generation        ✓
+OpenRouter / Grok 4.3 generation   ✓
+Runtime provider switching         ✓
+Shared Cortex Search retrieval     ✓
+Grounded RAG evidence              ✓
+PDF upload                         ✓
+DOCX upload                        ✓
+TXT upload                         ✓
+Markdown upload                    ✓
+Upload progress / lifecycle UI     ✓
+Document management tab            ✓
+Retry                              ✓
+Re-index                           ✓
+Delete                             ✓
+Refresh                            ✓
+Question inline spinner            ✓
+Management inline spinner          ✓
+Provider error handling            ✓
+20-question evaluation             ✓
+Automated tests                    ✓
 ```
 
 ---
 
 # Known Limitations
 
-- OpenRouter response latency can vary by model and provider availability.
-- Free OpenRouter routing can select different underlying models over time.
-- The supplied evaluation dataset does not include expected answers, so correctness and groundedness require explicit review.
+- OpenRouter response latency can vary by model, account state, network conditions, and provider availability.
+- External provider credits and rate limits can prevent otherwise valid generation requests.
+- Cortex Search indexing and external provider services can introduce variable latency.
+- The supplied evaluation dataset does not include expected answers, so numerical answer-correctness and groundedness require explicit review.
 - Retrieval-quality tuning is still possible for difficult or ambiguous questions.
-- Some questions may require additional intent/entity logic to select the exact expected policy.
-- Evaluation response times vary with external service conditions.
+- Some questions may require additional intent/entity logic to select the exact expected policy source.
+- The current progress indicator communicates the client-visible processing stages; it does not by itself guarantee that Cortex Search serving has completed an asynchronous refresh at the exact instant the refresh request returns.
 
 ---
 
 # Project Status
 
 ```text
-Core RAG architecture             COMPLETE
-Snowflake Cortex Search           COMPLETE
-Snowflake Cortex generation       COMPLETE
-Provider contract                 COMPLETE
-Provider factory                  COMPLETE
-OpenRouter generation             COMPLETE
-Runtime provider switching        COMPLETE
-Centralized configuration         COMPLETE
-Graceful provider errors          COMPLETE
-Dynamic document upload            COMPLETE
-PDF support                       COMPLETE
-DOCX support                      COMPLETE
-TXT support                       COMPLETE
-Markdown support                  COMPLETE
-Document Management tab           COMPLETE
-Retry / Re-index / Delete         COMPLETE
-20-question evaluation            COMPLETE
-Automated multi-provider tests    COMPLETE
-README documentation              COMPLETE
+Core RAG architecture              COMPLETE
+Snowflake Cortex Search            COMPLETE
+Snowflake Cortex generation        COMPLETE
+Provider contract                  COMPLETE
+Provider factory                   COMPLETE
+OpenRouter / Grok 4.3 generation   COMPLETE
+Runtime provider switching         COMPLETE
+Centralized configuration          COMPLETE
+Graceful provider errors           COMPLETE
+Dynamic document upload             COMPLETE
+PDF support                        COMPLETE
+DOCX support                       COMPLETE
+TXT support                        COMPLETE
+Markdown support                   COMPLETE
+Document Management tab            COMPLETE
+Retry / Re-index / Delete          COMPLETE
+Upload lifecycle progress          COMPLETE
+Question / management spinners     COMPLETE
+Latency display                    COMPLETE
+20-question evaluation             COMPLETE
+Automated multi-provider tests     COMPLETE
+README documentation               COMPLETE
 ```
 
 ---
@@ -917,9 +931,12 @@ SupportAI demonstrates a practical enterprise-style support architecture where:
 - The RAG service remains provider-neutral.
 - Generation providers can be switched at runtime.
 - Uploaded knowledge documents can be managed dynamically.
+- Uploaded documents can be immediately tested with a one-question retrieval preference without being locked into upload-only search.
 - Evidence is selected before generation.
 - Unsupported questions receive a controlled refusal.
-- Provider failures are handled without exposing raw exceptions.
+- Provider and document failures are handled without exposing raw exceptions to the user.
+- Logging provides operational visibility while avoiding secrets and raw document content.
+- UI fragments and lightweight inline processing indicators reduce unnecessary full-page rerendering and make long-running operations clearer.
 - The same retrieved context can be used to compare different generation providers.
 
-The result is a maintainable foundation for extending the assistant with additional generation providers without rebuilding the retrieval and document-management architecture.
+The result is a maintainable foundation for extending SupportAI with additional generation providers without rebuilding the retrieval and document-management architecture.
