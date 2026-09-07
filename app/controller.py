@@ -6,21 +6,29 @@ from rag.service import RAGResponse, RAGService
 from providers.factory import create_generator
 from config.settings import load_settings
 
+from services.cortex_analyst import (
+    CortexAnalystResponse,
+    CortexAnalystService,
+)
+from services.cortex_agent import (
+    CortexAgentResponse,
+    CortexAgentService,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
 class RetailAssistController:
     """
-    Application controller for Support AI.
+    Application controller for RetailAssist.
 
-    The controller coordinates:
-      - provider-neutral RAG orchestration
-      - runtime generator selection
-      - document ingestion/management
-
-    The UI only provides the provider name. Concrete generator creation
-    remains inside the provider factory.
+    Responsibilities:
+        - Provider selection for Policy RAG
+        - Existing RAG flow
+        - Cortex Analyst support analytics
+        - Cortex Agent orchestration
+        - Document management
     """
 
     def __init__(
@@ -33,32 +41,52 @@ class RetailAssistController:
         self.document_store = document_store
         self.session = session
 
-        self.selected_provider = "snowflake"
+        # Existing Policy RAG provider.
+        # Keep the controller's provider state synchronized with the
+        # generator that was actually created by main.py.
+        settings = load_settings()
+        configured_provider = (
+            str(settings.default_ai_provider or "snowflake").strip().lower()
+        )
+
+        # The Groq generator is exposed through the existing "openai"
+        # provider name in the provider factory/UI mapping.
+        if configured_provider == "groq":
+            configured_provider = "openai"
+
+        self.selected_provider = configured_provider
+
+        # Snowflake-native analytics services.
+        self.analyst_service = CortexAnalystService()
+        self.agent_service = CortexAgentService()
 
         logger.info(
-            "Support AI controller created. Initial provider=%s",
+            "RetailAssist controller created. Initial provider=%s",
             self.selected_provider,
         )
+
+    # ============================================================
+    # POLICY RAG / PROVIDER SELECTION
+    # ============================================================
 
     def set_provider(
         self,
         provider_name: str,
     ) -> None:
         """
-        Select the generation provider for subsequent requests.
+        Select the generation provider for Policy RAG.
 
-        Retrieval remains unchanged because the existing Retriever is reused
-        by the RAG service.
+        This affects ONLY the Policy RAG generation path.
+        Cortex Analyst and Cortex Agent do not use this provider.
         """
 
         provider = str(provider_name or "").strip().lower()
 
         if not provider:
-            logger.error("Provider selection failed: provider name is empty.")
             raise ValueError("AI provider cannot be empty.")
 
         logger.info(
-            "Switching AI generation provider from %s to %s.",
+            "Switching Policy RAG provider from %s to %s.",
             self.selected_provider,
             provider,
         )
@@ -76,26 +104,25 @@ class RetailAssistController:
             self.selected_provider = provider
 
             logger.info(
-                "AI generation provider switched successfully. Provider=%s",
+                "Policy RAG provider switched successfully. Provider=%s",
                 provider,
             )
 
         except Exception:
             logger.exception(
-                "Failed to initialize AI generation provider. Provider=%s",
+                "Failed to initialize Policy RAG provider. Provider=%s",
                 provider,
             )
             raise
 
     def get_provider(self) -> str:
-        """Return the currently selected generation provider."""
-
-        logger.debug(
-            "Current AI generation provider requested. Provider=%s",
-            self.selected_provider,
-        )
+        """Return the currently selected Policy RAG provider."""
 
         return self.selected_provider
+
+    # ============================================================
+    # POLICY RAG
+    # ============================================================
 
     def ask(
         self,
@@ -103,20 +130,21 @@ class RetailAssistController:
         top_k: int = 5,
     ) -> RAGResponse:
         """
-        Process a customer question through the provider-neutral RAG service.
+        Process a question through the existing Policy RAG flow.
+
+        This method is intentionally preserved for backward
+        compatibility with the existing application.
         """
 
         if not question or not question.strip():
-            logger.warning("Question rejected because it was empty.")
             raise ValueError("Question cannot be empty.")
 
         cleaned_question = question.strip()
 
         logger.info(
-            "RAG request started. Provider=%s, top_k=%s, question_length=%s",
+            "Policy RAG request started. Provider=%s, top_k=%s",
             self.selected_provider,
             top_k,
-            len(cleaned_question),
         )
 
         try:
@@ -126,7 +154,7 @@ class RetailAssistController:
             )
 
             logger.info(
-                "RAG request completed successfully. Provider=%s, "
+                "Policy RAG request completed. Provider=%s, "
                 "answer_length=%s, evidence_count=%s",
                 self.selected_provider,
                 len(response.answer or ""),
@@ -137,8 +165,114 @@ class RetailAssistController:
 
         except Exception:
             logger.exception(
-                "RAG request failed. Provider=%s, question_length=%s",
+                "Policy RAG request failed. Provider=%s",
                 self.selected_provider,
-                len(cleaned_question),
+            )
+            raise
+
+    def ask_policy(
+        self,
+        question: str,
+        top_k: int = 5,
+    ) -> RAGResponse:
+        """
+        Explicit Policy RAG entry point.
+
+        This is an alias around the existing ask() method so the
+        UI can clearly distinguish Policy RAG from other modes.
+        """
+
+        return self.ask(
+            question=question,
+            top_k=top_k,
+        )
+
+    # ============================================================
+    # SUPPORT ANALYTICS
+    # ============================================================
+
+    def ask_analytics(
+        self,
+        question: str,
+    ) -> CortexAnalystResponse:
+        """
+        Process a natural-language support analytics question
+        through Snowflake Cortex Analyst.
+
+        The question is answered using the SUPPORT_ANALYTICS
+        Semantic View.
+        """
+
+        if not question or not question.strip():
+            raise ValueError("Question cannot be empty.")
+
+        cleaned_question = question.strip()
+
+        logger.info(
+            "Support Analytics request started. question_length=%s",
+            len(cleaned_question),
+        )
+
+        try:
+            response = self.analyst_service.ask(
+                cleaned_question,
+            )
+
+            logger.info(
+                "Support Analytics request completed. answer_length=%s, sql_present=%s",
+                len(response.answer or ""),
+                bool(response.sql),
+            )
+
+            return response
+
+        except Exception:
+            logger.exception(
+                "Support Analytics request failed.",
+            )
+            raise
+
+    # ============================================================
+    # CORTEX AGENT
+    # ============================================================
+
+    def ask_agent(
+        self,
+        question: str,
+    ) -> CortexAgentResponse:
+        """
+        Process a question through the Snowflake Cortex Agent.
+
+        The Agent automatically decides whether to use:
+            - PolicySearch
+            - SupportAnalytics
+            - both tools
+        """
+
+        if not question or not question.strip():
+            raise ValueError("Question cannot be empty.")
+
+        cleaned_question = question.strip()
+
+        logger.info(
+            "Cortex Agent request started. question_length=%s",
+            len(cleaned_question),
+        )
+
+        try:
+            response = self.agent_service.ask(
+                cleaned_question,
+            )
+
+            logger.info(
+                "Cortex Agent request completed. answer_length=%s",
+                len(response.answer or ""),
+            )
+
+            return response
+
+        except Exception:
+            logger.exception(
+                "Cortex Agent request failed.",
             )
             raise

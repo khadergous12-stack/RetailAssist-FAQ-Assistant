@@ -31,6 +31,7 @@ def create_generator(
 
     if provider in {
         "groq",
+        "openai",
     }:
         return OpenAIGenerator(
             settings=settings,

@@ -43,18 +43,18 @@ class OpenAIGenerator:
     ):
         settings = settings or load_settings()
 
-        self.api_key = (
-            api_key
-            or os.getenv("GROQ_API_KEY")
-            or getattr(settings, "groq_api_key", None)
+        self.api_key = api_key or os.getenv("GROQ_API_KEY") or settings.groq_api_key
+
+        self.model = (
+            model
+            or os.getenv("GROQ_MODEL")
+            or settings.groq_model
+            or "openai/gpt-oss-20b"
         )
-        self.model = model or os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
-        self.max_tokens = int(
-            os.getenv("GROQ_MAX_TOKENS") or getattr(settings, "groq_max_tokens", 256)
-        )
-        self.timeout = int(
-            os.getenv("GROQ_TIMEOUT") or getattr(settings, "groq_timeout", 60)
-        )
+
+        self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS") or settings.groq_max_tokens)
+
+        self.timeout = float(os.getenv("GROQ_TIMEOUT") or settings.groq_timeout)
 
         if not self.api_key:
             logger.error("Groq initialization failed: API key is not configured.")
@@ -100,6 +100,10 @@ class OpenAIGenerator:
                 }
             ],
             max_tokens=self.max_tokens,
+            extra_body={
+                "reasoning_effort": "low",
+                "include_reasoning": False,
+            },
         )
 
     def generate(self, prompt: str) -> str:

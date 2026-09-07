@@ -1,182 +1,442 @@
 # SupportAI
 
-SupportAI is a policy-grounded customer-support assistant that answers retail FAQ questions using approved policy documents, Retrieval-Augmented Generation (RAG), and Snowflake Cortex Search.
+> **Enterprise-style policy-grounded customer-support assistant with Snowflake Cortex Search, multi-provider RAG, Cortex Analyst, and Cortex Agent orchestration.**
 
-The extended version adds **multi-provider generation** and **dynamic document management**. Users can upload PDF, DOCX, TXT, and Markdown documents through the Streamlit UI, store and process them in Snowflake, retrieve relevant evidence through the same Cortex Search service, and choose at runtime between **Snowflake Cortex** and **OpenRouter (Grok 4.3)** for answer generation.
+SupportAI is a Streamlit-based customer-support intelligence application designed to answer retail policy questions from approved knowledge sources while also answering structured support-ticket questions and combining both sources in a single response.
+
+The platform separates **retrieval, evidence selection, generation, structured analytics, and agent orchestration** so that each responsibility remains independently testable and maintainable.
 
 ---
 
-## Key Features
+## 1. Executive Overview
 
-- Policy-grounded customer-support answers
+SupportAI provides three user-facing modes:
+
+| Mode | Purpose | Primary Snowflake capability |
+|---|---|---|
+| **Policy RAG** | Answer policy and FAQ questions using grounded evidence | Cortex Search + selected generator |
+| **Support Analytics** | Answer natural-language questions over support-ticket data and expose generated SQL | Cortex Analyst + `SUPPORT_ANALYTICS` |
+| **Cortex Agent** | Automatically combine policy and structured analytics tools when required | Cortex Agent + Cortex Search + Cortex Analyst |
+
+The Policy RAG mode supports two generation providers:
+
+- **Snowflake Cortex**
+- **Groq** using the OpenAI-compatible API
+
+Both providers use the same Snowflake Cortex Search retrieval path and the same final evidence context for fair comparison.
+
+---
+
+## 2. Key Capabilities
+
+### Policy RAG
+- Policy-grounded customer-support responses
 - Retrieval-Augmented Generation (RAG)
-- Snowflake Cortex Search as the retrieval layer
-- Snowflake Cortex generation support
-- OpenRouter generation using the OpenAI-compatible API with **Grok 4.3**
-- Runtime AI-provider selection from the Streamlit UI
-- Dynamic document upload from the Streamlit UI
-- PDF, DOCX, TXT, and Markdown document support
-- Automatic document category detection
-- Document metadata and chunk tracking
-- Duplicate document handling
-- Retry, re-index, delete, and refresh document-management actions
-- Relevant evidence/source display in the UI
-- Uploaded-document page/section metadata where available
-- Provider-neutral RAG architecture
-- Centralized configuration through `config/settings.py`
-- Graceful provider error handling
-- Local/demo mode for development and testing
-- Automated tests and 20-question provider evaluation
-- Document-upload progress from validation through indexing
-- Inline processing spinner for questions and document-management actions
-- Streamlit fragment-based UI updates to reduce unnecessary full-page reruns
-- One-question retrieval preference for a newly uploaded document, followed by normal all-active-document retrieval
-- Retrieval and generation latency shown with each answer
-- Structured logging for uploads, parsing, chunking, indexing, retrieval, generation, and document-management actions
+- Snowflake Cortex Search as the shared retrieval layer
+- Evidence scoring and filtering before generation
+- Controlled refusal when sufficient policy evidence is unavailable
+- Runtime provider selection between Snowflake Cortex and Groq
+- Supporting source, section, chunk, and page metadata where available
+
+### Knowledge-Base Management
+- PDF, DOCX, TXT, and Markdown uploads
+- Document metadata and lifecycle tracking
+- Duplicate-document handling
+- Retry failed processing
+- Re-index documents
+- Deactivate/delete documents
+- Refresh searchable content
+- Upload processing progress
+- Temporary one-question retrieval preference for newly uploaded documents
+
+### Structured Support Analytics
+- 500 synthetic support-ticket records
+- Business-friendly Snowflake Semantic View: `SUPPORT_ANALYTICS`
+- Natural-language analytics questions
+- Generated SQL visible in the UI
+- SQL execution and result handling through Cortex Analyst
+- Validation against direct SQL for 10 structured evaluation questions
+
+### Cortex Agent
+- One Snowflake Cortex Agent
+- Existing policy Cortex Search tool
+- `SUPPORT_ANALYTICS` Cortex Analyst tool
+- Automatic routing for policy-only, analytics-only, and combined questions
+- Agent activity display in the UI
+- Combined answers that distinguish policy guidance from operational metrics
+
+### Engineering and Operations
+- Provider-neutral `Generator` contract
+- Centralized configuration
+- Externalized credentials
+- Structured application logging
+- User-friendly error handling
+- Automated tests
+- Repeatable evaluation workflows
+- Streamlit fragment-based UI updates where supported
+- Retrieval and generation latency visibility
 
 ---
 
-# Architecture
+## 3. Architecture
 
-The application keeps **retrieval independent from generation**.
+SupportAI keeps retrieval independent from generation and keeps structured analytics separate from the external provider abstraction.
 
 ```text
-                         ┌────────────────────────┐
-                         │      Streamlit UI      │
-                         │ FAQ + Document Upload  │
-                         │   + AI Provider UI     │
-                         └────────────┬───────────┘
-                                      │
-                                      ▼
-                         ┌────────────────────────┐
-                         │       Controller       │
-                         │ RetailAssistController │
-                         └────────────┬───────────┘
-                                      │
-                                      ▼
-                         ┌────────────────────────┐
-                         │       RAGService       │
-                         │ Provider-neutral RAG   │
-                         └────────────┬───────────┘
-                                      │
-                         ┌────────────┴────────────┐
-                         │                         │
-                         ▼                         ▼
-                  ┌─────────────────┐      ┌─────────────────┐
-                  │    Retriever    │      │    Generator    │
-                  │     Contract    │      │     Contract    │
-                  └────────┬────────┘      └────────┬────────┘
-                           │                        │
-                           ▼                        ▼
-                  ┌─────────────────┐      ┌─────────────────┐
-                  │ Snowflake       │      │ Provider Factory│
-                  │ Cortex Search   │      └────────┬────────┘
-                  └────────┬────────┘               │
-                           │               ┌─────────┴─────────┐
-                           │               │                   │
-                           ▼               ▼                   ▼
-                  ┌─────────────────┐  Snowflake          OpenRouter
-                  │ Final Evidence  │  Cortex             / Grok 4.3
-                  └────────┬────────┘  Generator           Generator
-                           │
-                           └──────────────┬────────────────────┘
-                                          ▼
-                                Grounded Prompt / Answer
+                                 USER
+                                   |
+                                   v
+                        +----------------------+
+                        |     Streamlit UI     |
+                        |                      |
+                        | Mode Selector        |
+                        | Question Input       |
+                        | Document Management  |
+                        +----------+-----------+
+                                   |
+                     +-------------+-------------+
+                     |             |             |
+                     v             v             v
+               Policy RAG   Support Analytics   Cortex Agent
+                     |             |             |
+                     v             v             v
+              Cortex Search   Cortex Analyst  Cortex Agent
+                     |        SUPPORT_ANALYTICS    |
+                     v             |         +-------+-------+
+              Evidence Filter     |         |               |
+                     |             |         v               v
+                     v             v   PolicySearch   SupportAnalytics
+                Final Context   Generated SQL   |       |
+                     |             |             |       |
+              +------+-----+       |             +---+---+
+              |            |       |                 |
+              v            v       v                 v
+       Snowflake Cortex   Groq   SQL Results     Combined Context
+          Generator      Generator                    |
+              |            |                           |
+              +------+-----+                           |
+                     |                                 |
+                     v                                 v
+                Policy Answer                    Agent Answer
 ```
 
-### Provider-selection flow
+### Policy RAG request flow
 
 ```text
 User Question
-     ↓
+     |
+     v
 Snowflake Cortex Search
-     ↓
-RAG Evidence Filtering
-     ↓
-Same Retrieved Context
-     ├───────────────┐
-     ▼               ▼
-Snowflake Cortex  OpenRouter (Grok 4.3)
-     │               │
-     └───────┬───────┘
-             ▼
-        Final Answer
+     |
+     v
+Candidate Retrieval
+     |
+     v
+Question / Chunk Scoring
+     |
+     v
+Intent + Variant Filtering
+     |
+     v
+Final Evidence
+     |
+     v
+Shared Grounded Prompt
+     |
+     +------------------------+
+     |                        |
+     v                        v
+Snowflake Cortex            Groq
+     |                        |
+     +-----------+------------+
+                 |
+                 v
+            Final Answer
 ```
 
-**Important:** OpenRouter is a **generation provider only**. It does not replace Snowflake Cortex Search retrieval.
+### Important design principle
+
+**Cortex Search retrieves candidates, the RAG service determines valid evidence, and the selected generator produces the grounded policy answer.**
+
+For provider comparison, both generators receive the same final evidence context so the comparison focuses on generation behavior rather than different retrieval results.
 
 ---
 
-# Supported Generation Providers
+## 4. Technology Stack
 
-## 1. Snowflake Cortex
+| Layer | Technology |
+|---|---|
+| UI | Streamlit |
+| Application layer | Python |
+| Retrieval | Snowflake Cortex Search |
+| Policy generation | Snowflake Cortex / Groq |
+| Structured analytics | Snowflake Cortex Analyst |
+| Agent orchestration | Snowflake Cortex Agent |
+| Semantic layer | Snowflake Semantic View |
+| Document processing | PDF / DOCX / TXT / Markdown pipeline |
+| Configuration | Environment variables + `config/settings.py` |
+| Testing | Pytest |
+| Data format | CSV |
+| Database / warehouse | Snowflake |
 
-The default provider uses the Snowflake-backed generation implementation.
+---
 
-## 2. OpenRouter (Grok 4.3)
+## 5. Policy RAG
 
-OpenRouter is used through its OpenAI-compatible API.
+### Retrieval architecture
 
-The provider adapter lives under:
+Cortex Search is the shared retrieval layer for Policy RAG.
+
+The system does not treat the top Search result as automatically valid evidence. Candidate results are passed through an evidence-selection layer that considers signals including:
+
+- lexical overlap
+- FAQ and section-heading relevance
+- question intent
+- candidate intent
+- distinctive terms
+- policy-variant compatibility
+- Cortex ranking score
+
+This helps prevent incorrect cross-policy matches, such as applying standard-shipping evidence to an express-shipping question.
+
+### Grounding behavior
+
+The generator is instructed to answer only from supplied evidence.
+
+When sufficient evidence is unavailable, the configured refusal is:
+
+```text
+I couldn't find a policy that answers that question.
+```
+
+The application should not fabricate company policy from general knowledge.
+
+---
+
+## 6. Generation Providers
+
+### Snowflake Cortex
+
+Snowflake Cortex provides the native generation path used by the application.
+
+### Groq
+
+Groq is used through its OpenAI-compatible API.
+
+The current provider adapter is located at:
 
 ```text
 providers/openai/generator.py
 ```
 
-The UI presents this provider as **OpenRouter (Grok 4.3)**. The internal provider identifier remains the existing OpenAI-compatible adapter name so the provider factory and RAG contracts remain unchanged.
+The directory name is retained as an internal implementation path for compatibility with the existing provider factory and contracts; the active external generation service is **Groq**.
 
----
+Current model configuration:
 
-# Runtime Provider Selection
+```text
+openai/gpt-oss-20b
+```
 
-The main Streamlit interface contains an **AI Provider** dropdown near the top of the page.
+### Provider selection
 
-Available options:
+The **AI Provider** selector is available in **Policy RAG** mode.
+
+Available generation providers:
 
 ```text
 Snowflake Cortex
-OpenRouter (Grok 4.3)
+Groq
 ```
 
-Changing the selection affects the **next generation request** without restarting the application.
+The provider applies to the next Policy RAG generation request.
 
-The active provider and request latency are shown with the answer:
+The provider selector is not used by Support Analytics or Cortex Agent mode because those modes use Snowflake-native orchestration.
+
+---
+
+## 7. Support Analytics
+
+Support Analytics provides structured natural-language querying over support tickets.
+
+### Dataset
+
+The project contains a synthetic support-ticket dataset with **500 records** covering:
+
+- Refunds
+- Shipping
+- Returns
+- Payments
+- Warranty
+
+The dataset includes fields required for operational analysis such as:
+
+- created date
+- category
+- status
+- priority
+- channel
+- region
+- product family
+- resolution time
+- customer rating
+- escalation state
+- refund amount
+
+### Semantic View
+
+The required business-semantics layer is:
 
 ```text
-Generated by: OpenRouter (Grok 4.3)
-Latency: 1.38s
+RETAIL_ASSIST_DB.RETAIL_ASSIST.SUPPORT_ANALYTICS
 ```
 
-The retrieval path remains the same for both providers.
+Key dimensions include:
+
+```text
+created_date
+category
+status
+priority
+channel
+region
+product_family
+```
+
+Core measures and metrics include:
+
+```text
+ticket_count
+open_ticket_count
+closed_ticket_count
+average_resolution_hours
+average_customer_rating
+escalation_rate
+total_refund_amount
+```
+
+### User experience
+
+The application returns:
+
+1. A natural-language answer
+2. The generated SQL in an expandable **Generated SQL** section
+3. A request identifier where available
+
+The semantic-layer requirements call for generated SQL to remain visible for learning and verification.
 
 ---
 
-# Dynamic Document Management
+## 8. Cortex Agent
 
-The application supports knowledge-base management through a dedicated **Document Management** tab.
+Cortex Agent is the Snowflake-native orchestration mode.
 
-The main SupportAI tab contains:
+### Configured tools
 
-- FAQ interaction
-- Document upload
-- AI provider selection
-- Upload processing progress
+#### `PolicySearch`
+Purpose:
 
-The Document Management tab contains:
+```text
+Retrieve unstructured policy and FAQ evidence
+```
 
-- Uploaded-document listing
-- Category/status filtering
-- Metadata inspection
-- Retry
-- Re-index
-- Delete
-- Refresh
+Backed by the existing Cortex Search service:
 
-Administrative actions display an inline processing spinner while the backend operation runs, and each action is logged with document ID and elapsed time.
+```text
+RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH
+```
+
+#### `SupportAnalytics`
+Purpose:
+
+```text
+Generate and execute SQL over structured support-ticket data
+```
+
+Backed by:
+
+```text
+RETAIL_ASSIST_DB.RETAIL_ASSIST.SUPPORT_ANALYTICS
+```
+
+### Automatic routing
+
+The Agent selects tools based on the question.
+
+#### Policy-only
+
+Example:
+
+```text
+Can I return a damaged product after 20 days?
+```
+
+Expected routing:
+
+```text
+PolicySearch
+```
+
+#### Analytics-only
+
+Example:
+
+```text
+What is the average refund ticket resolution time?
+```
+
+Expected routing:
+
+```text
+SupportAnalytics
+```
+
+#### Combined
+
+Example:
+
+```text
+What does the refund policy promise, and how long are refund tickets actually taking?
+```
+
+Expected routing:
+
+```text
+PolicySearch + SupportAnalytics
+```
+
+For combined responses, the application distinguishes policy statements from operational support-ticket metrics.
 
 ---
 
-# Supported Document Formats
+## 9. Mandatory Demonstration Question
+
+The final integrated demonstration question is:
+
+```text
+Customers are complaining about refunds. What does our refund policy say,
+how many refund tickets did we receive last month, and how does their
+average resolution time compare with other categories?
+```
+
+This question demonstrates the complete architecture:
+
+```text
+Policy retrieval
+        +
+Structured analytics
+        +
+Combined grounded response
+```
+
+The Agent should use both configured Snowflake tools for this cross-source request.
+
+---
+
+## 10. Document Management
+
+SupportAI includes a dedicated Document Management experience.
+
+Supported formats:
 
 | Format | Extension | Supported |
 |---|---|---|
@@ -185,69 +445,43 @@ Administrative actions display an inline processing spinner while the backend op
 | Microsoft Word | `.docx` | Yes |
 | Plain text | `.txt` | Yes |
 
-Uploaded documents are stored and processed through the Snowflake document pipeline and become available as retrieval evidence after successful indexing.
-
----
-
-# Document Upload Flow
+### Upload lifecycle
 
 ```text
-User selects file
-        ↓
-Validate extension / size / empty file
-        ↓
-Create document metadata
-        ↓
-Upload to Snowflake stage
-        ↓
-Parse document content
-        ↓
-Store parsed content
-        ↓
-Create searchable chunks
-        ↓
-Store chunk metadata
-        ↓
+Select File
+   |
+   v
+Validate Extension / Size / Empty File
+   |
+   v
+Create Document Metadata
+   |
+   v
+Upload to Snowflake Stage
+   |
+   v
+Parse Content
+   |
+   v
+Store Parsed Content
+   |
+   v
+Create Searchable Chunks
+   |
+   v
+Store Chunk Metadata
+   |
+   v
 Refresh Cortex Search
-        ↓
-Mark document indexed / ready
-        ↓
-Available as RAG evidence
+   |
+   v
+Mark Indexed / Ready
+   |
+   v
+Available as RAG Evidence
 ```
 
-The UI shows progress through these stages so users can see the pipeline moving from validation to parsing, chunking, storage, and indexing.
-
-Backend logs record the document ID, sanitized filename, stage transitions, page/chunk counts, refresh request, processing status, duration, and failures without logging secrets or extracted document content.
-
----
-
-# Upload Retrieval Scope
-
-A newly uploaded document receives a **temporary one-question retrieval preference**.
-
-```text
-No new upload
-      ↓
-Search all active/indexed documents
-
-New upload
-      ↓
-Next question searches the newly uploaded document(s)
-      ↓
-Temporary scope is consumed
-      ↓
-Future questions search the normal active knowledge base again
-```
-
-The uploaded document remains active and indexed after that question. The **Clear** button only clears the displayed interaction; it does not delete the document or permanently change retrieval scope.
-
-This behavior allows users to immediately test newly uploaded knowledge without locking the application into upload-only retrieval mode.
-
----
-
-# Document Lifecycle
-
-Typical document states include:
+### Document lifecycle states
 
 ```text
 UPLOADING
@@ -258,106 +492,347 @@ FAILED
 DELETED
 ```
 
-Only active, indexed uploaded documents should participate in retrieval.
+Only active, indexed uploaded documents should participate in normal retrieval.
 
-Deleted documents are deactivated and excluded from the active search source.
+### Newly uploaded documents
 
----
-
-# RAG Pipeline
-
-SupportAI treats Cortex Search results as **candidates**, not automatically valid evidence.
+A newly uploaded document can receive a temporary one-question retrieval preference:
 
 ```text
-User Question
-     ↓
-Cortex Search Candidate Retrieval
-     ↓
-Question / Chunk Scoring
-     ↓
-Intent Filtering
-     ↓
-Variant Protection
-     ↓
-Evidence Selection
-     ↓
-Grounded Prompt
-     ↓
-Selected Generator
-     ↓
-Final Answer
+New Upload
+    |
+    v
+Next Question Prioritizes New Upload
+    |
+    v
+Scope Consumed
+    |
+    v
+Normal Active Knowledge Base Retrieval
 ```
 
-The filtering layer considers signals such as:
-
-- lexical overlap
-- FAQ/section-heading relevance
-- query intent
-- candidate intent
-- distinctive terms
-- variant compatibility
-- retrieval score
-
-This helps avoid cases such as using standard-shipping evidence for an express-shipping question.
+The uploaded document remains active after that question.
 
 ---
 
-# Grounding and Refusal Behavior
+## 11. Snowflake Integration
 
-The assistant is designed to answer only from retrieved policy evidence.
+Snowflake provides the persistent data and intelligence layer for the application.
 
-When sufficient evidence is unavailable, the application returns the configured refusal message:
+The platform uses Snowflake for:
+
+- application/session connectivity
+- document metadata
+- extracted document content
+- policy chunks
+- uploaded document chunks
+- Cortex Search
+- support-ticket storage
+- Semantic View
+- Cortex Analyst
+- Cortex Agent
+- Snowflake Cortex generation
+
+### Existing Policy Search Service
 
 ```text
-I couldn't find a policy that answers that question.
+RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH
 ```
 
-The system should not fabricate a policy answer from general knowledge.
-
----
-
-# Evidence Display
-
-Responses can display supporting source information including:
-
-- Document name
-- Category
-- Chunk index
-- Section heading
-- Page number when available for uploaded PDF/DOCX documents
-
-Example:
+### Support Analytics Semantic View
 
 ```text
-Generated by: OpenRouter (Grok 4.3)
-Latency: 1.38s
+RETAIL_ASSIST_DB.RETAIL_ASSIST.SUPPORT_ANALYTICS
+```
 
-Source:
-supportai_shipping_policy.pdf
+### Cortex Agent
 
-Page: 2
-Section: 2. Express Shipping
+```text
+RETAIL_ASSIST_AGENT
+```
+
+The Agent uses Snowflake-native orchestration with:
+
+```text
+PolicySearch
+SupportAnalytics
 ```
 
 ---
 
-# UI Performance and Processing Feedback
+## 12. Configuration
 
-The UI is designed to avoid unnecessary full-page reruns during interactive operations.
+Configuration is centralized in:
 
-The main SupportAI experience and Document Management experience use Streamlit fragments when the installed Streamlit version supports them. Provider selection and section-level actions therefore remain localized to the relevant part of the page.
+```text
+config/settings.py
+```
 
-Questions use a lightweight **inline spinner** next to the processing status rather than a page-blocking overlay. The spinner communicates that retrieval and generation are running while preserving the normal page layout.
+Create a local environment file:
 
-Document-management operations use the same pattern for Retry, Re-index, Delete, and Refresh.
+```powershell
+Copy-Item .env.example .env
+```
 
-Document upload uses staged progress indicators so the user can see the backend workflow instead of waiting on an unexplained blank state.
+### Safe `.env.example`
 
-The application also records request duration and shows the answer latency in the response metadata.
+Do not commit credentials or tokens.
+
+```env
+SNOWFLAKE_ACCOUNT=
+SNOWFLAKE_USER=
+SNOWFLAKE_PAT=
+SNOWFLAKE_WAREHOUSE=
+SNOWFLAKE_DATABASE=RETAIL_ASSIST_DB
+SNOWFLAKE_SCHEMA=RETAIL_ASSIST
+SNOWFLAKE_ROLE=
+
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_MAX_TOKENS=256
+GROQ_TIMEOUT=30
+
+DEFAULT_AI_PROVIDER=snowflake
+RETAIL_ASSIST_MODE=SNOWFLAKE
+RETAIL_ASSIST_LOG_LEVEL=INFO
+```
+
+The local `.env` file should contain the real credentials for the developer environment and must remain outside source control.
+
+### Secret handling
+
+Never commit:
+
+- Snowflake credentials
+- PATs
+- Groq API keys
+- access tokens
+- production secrets
 
 ---
 
-# Project Structure
+## 13. Installation
+
+Recommended Python setup:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+The project uses `python-dotenv` for environment configuration.
+
+---
+
+## 14. Run the Application
+
+From the project root:
+
+```powershell
+$env:PYTHONPATH = "."
+streamlit run app/main.py
+```
+
+The main application provides:
+
+- Policy RAG
+- Support Analytics
+- Cortex Agent
+- runtime provider selection in Policy RAG
+- supporting evidence
+- generated SQL visibility
+- Agent activity visibility
+- document upload
+- document management
+- processing indicators
+- latency information
+
+---
+
+## 15. Local Demo Mode
+
+For UI development without a live Snowflake dependency:
+
+```powershell
+$env:PYTHONPATH = "."
+streamlit run app/demo_main.py
+```
+
+The demo environment is intended for local UI and component development rather than production validation of Snowflake services.
+
+---
+
+## 16. Testing
+
+Run the complete automated test suite:
+
+```powershell
+$env:PYTHONPATH = "."
+python -m pytest -q
+```
+
+Latest validated result:
+
+```text
+27 passed
+0 failed
+```
+
+### Multi-provider tests cover
+
+- provider factory behavior
+- unsupported provider handling
+- missing configuration
+- Generator interface behavior
+- Groq generation behavior
+- provider API failure handling
+- RAG-service orchestration
+
+External provider calls are mocked in unit tests so the suite does not require paid/live generation requests.
+
+---
+
+## 17. Evaluation Strategy
+
+SupportAI uses three complementary evaluation layers.
+
+### 17.1 Policy RAG Evaluation
+
+The original Policy RAG dataset contains **20 questions**.
+
+Run:
+
+```powershell
+python scripts/evaluate_providers.py
+```
+
+Results:
+
+```text
+data/provider_evaluation_results.csv
+```
+
+The evaluation retrieves and filters evidence once and supplies the same final evidence context to:
+
+```text
+Snowflake Cortex
+Groq
+```
+
+### Current Policy RAG evaluation snapshot
+
+| Metric | Result |
+|---|---:|
+| Questions evaluated | 20/20 |
+| Successful Snowflake responses | 20/20 |
+| Successful Groq responses | 20/20 |
+| Unsupported questions handled | 2/2 |
+| Answerable questions | 18 |
+| Exact expected-source matches | 13/18 |
+| Exact expected-source rate | 72.2% |
+
+The source-match metric is a retrieval/evidence metric. The supplied evaluation dataset does not contain reference answers, so an objective answer-correctness or groundedness percentage is not claimed from this CSV alone.
+
+The evaluation intentionally retains difficult retrieval cases for future tuning rather than removing them to improve the reported metric.
+
+### 17.2 Structured Analytics Evaluation
+
+The project includes at least **10 structured natural-language questions** with known expected values.
+
+Validation is performed against direct SQL queries.
+
+Validated examples include:
+
+| ID | Validation |
+|---|---|
+| AN-01 | Current open-ticket count |
+| AN-02 | Highest average resolution time |
+| AN-03 | Monthly ticket volume |
+| AN-04 | Lowest average customer rating |
+| AN-05 | High-priority tickets in the previous month |
+| AN-06 | Escalation rate by category |
+| AN-07 | Refunds vs Shipping average resolution time |
+| AN-08 | Regions with the largest number of open tickets |
+| AN-09 | Monthly refund amount |
+| AN-10 | Lowest-rated product family |
+
+Validated structured evaluation status:
+
+```text
+10/10 passed
+```
+
+### 17.3 Cortex Agent Evaluation
+
+The Agent evaluation contains **12 questions**:
+
+```text
+4 policy-only
+4 analytics-only
+4 combined
+```
+
+The evaluation checks:
+
+- expected source/tool type
+- answer grounding
+- combined-source behavior
+- numeric results for analytics questions
+- routing behavior
+
+---
+
+## 18. Sample Questions
+
+### Policy RAG
+
+```text
+What is the return window for an unused product?
+```
+
+```text
+What refund processing time does the policy promise?
+```
+
+```text
+What payment methods does the company accept?
+```
+
+### Support Analytics
+
+```text
+How many support tickets are currently open?
+```
+
+```text
+Which category has the highest average resolution time?
+```
+
+```text
+What is the escalation rate for each support ticket category?
+```
+
+### Cortex Agent
+
+```text
+What does the refund policy promise, and how long are refund tickets actually taking?
+```
+
+```text
+Which policy applies to late shipments and how many Shipping tickets were escalated last month?
+```
+
+```text
+Customers are complaining about refunds. What does our refund policy say,
+how many refund tickets did we receive last month, and how does their
+average resolution time compare with other categories?
+```
+
+---
+
+## 19. Project Structure
 
 ```text
 SupportAI/
@@ -379,9 +854,13 @@ SupportAI/
 │   ├── returns_faq.md
 │   ├── shipping_faq.md
 │   ├── warranty_faq.md
+│   ├── support_tickets.csv
 │   ├── evaluation_questions.csv
-│   ├── provider_evaluation_results.csv
-│   └── provider_evaluation_summary.csv
+│   └── provider_evaluation_results.csv
+│
+├── evaluation/
+│   ├── analyst_questions.csv
+│   └── agent_questions.csv
 │
 ├── providers/
 │   ├── factory.py
@@ -398,19 +877,20 @@ SupportAI/
 │   ├── prompts.py
 │   └── service.py
 │
-├── scripts/
-│   ├── evaluation_summary.py
-│   ├── evaluate_providers.py
-│   ├── retry_failed_openrouter.py
-│   └── generate_seed.py
+├── services/
+│   ├── cortex_analyst.py
+│   └── cortex_agent.py
 │
 ├── sql/
-│   ├── foundation.sql
-│   ├── 02_seed.sql
-│   ├── chunking.sql
-│   ├── documents.sql
-│   ├── search.sql
-│   └── validation.sql
+│   ├── 01_setup.sql
+│   ├── 02_load_support_tickets.sql
+│   ├── 03_semantic_view.sql
+│   ├── 04_agent.sql
+│   └── 05_validation.sql
+│
+├── scripts/
+│   ├── evaluate_providers.py
+│   └── evaluation_summary.py
 │
 ├── tests/
 │   ├── test_contracts.py
@@ -432,288 +912,38 @@ SupportAI/
 
 ---
 
-# Snowflake Integration
-
-Snowflake is used for persistent knowledge storage and retrieval.
-
-Main components include:
-
-- Snowflake session/connection management
-- Document metadata storage
-- Extracted document content
-- Uploaded document chunks
-- Policy source/chunk storage
-- Cortex Search
-- Snowflake Cortex generation
-
-The active Cortex Search service is:
-
-```text
-RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH
-```
-
-The Search service uses `POLICY_CHUNKS` as its source and excludes inactive rows.
-
----
-
-# Configuration
-
-Configuration is centralized in:
-
-```text
-config/settings.py
-```
-
-Create the local environment file:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Example configuration:
-
-```env
-RETAIL_ASSIST_MODE=SNOWFLAKE
-RETAIL_ASSIST_LOG_LEVEL=INFO
-DEFAULT_AI_PROVIDER=snowflake
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=x-ai/grok-4.3
-OPENROUTER_MAX_TOKENS=256
-OPENROUTER_TIMEOUT=60
-```
-
-Snowflake variables are configured according to the existing Snowflake connection implementation.
-
-### Secrets
-
-Never commit:
-
-- OpenRouter API keys
-- Snowflake credentials
-- PATs
-- Access tokens
-- Other production secrets
-
-The repository should contain only safe placeholder values in `.env.example`.
-
----
-
-# Installation
-
-Use a supported Python environment.
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-The project uses environment loading through `python-dotenv`.
-
----
-
-# Run the Application
-
-From the project root:
-
-```powershell
-$env:PYTHONPATH = "."
-streamlit run app/main.py
-```
-
-The application provides:
-
-- FAQ question input
-- AI-provider selection
-- Policy-grounded responses
-- Supporting evidence
-- Dynamic document upload
-- Document processing progress
-- Document management
-- Inline processing indicators
-
----
-
-# Local Demo Mode
-
-For local UI development without a live Snowflake dependency:
-
-```powershell
-$env:PYTHONPATH = "."
-streamlit run app/demo_main.py
-```
-
----
-
-# Testing
-
-Run the full automated test suite:
-
-```powershell
-$env:PYTHONPATH = "."
-python -m pytest -q
-```
-
-The multi-provider tests cover:
-
-- Provider factory behavior
-- Unsupported provider handling
-- Missing configuration
-- Generator interface behavior
-- OpenRouter generation success
-- Provider API failure handling
-- RAG-service orchestration
-- Document and retriever contracts where covered by the existing suite
-
-External provider calls are mocked in unit tests so the test suite does not require live or paid provider calls.
-
----
-
-# Evaluation
-
-The existing evaluation dataset contains 20 questions:
-
-```text
-data/evaluation_questions.csv
-```
-
-Every question is evaluated against both:
-
-1. Snowflake Cortex
-2. OpenRouter (Grok 4.3)
-
-The evaluation retrieves and filters the evidence once and reuses the same final evidence context for both generators.
-
-Run:
-
-```powershell
-python scripts/evaluate_providers.py
-```
-
-Results are written to:
-
-```text
-data/provider_evaluation_results.csv
-```
-
-Generate the provider summary:
-
-```powershell
-python scripts/evaluation_summary.py
-```
-
-Summary output:
-
-```text
-data/provider_evaluation_summary.csv
-```
-
----
-
-# Latest Evaluation Snapshot
-
-The latest completed 20-question run observed in development produced:
-
-| Metric | Snowflake Cortex | OpenRouter (Grok 4.3) |
-|---|---:|---:|
-| Questions evaluated | 20/20 | 20/20 |
-| Successful responses | 20/20 | 20/20 |
-| Source-correct retrievals | 17/18 | 17/18 |
-| Source-correct retrieval rate | 94.4% | 94.4% |
-| Unsupported questions handled | 2/2 | 2/2 |
-| Average response time | 2.446s | 1.383s |
-
-The source-correct retrieval metric is based on the answerable questions for which an expected source is defined. The supplied dataset does **not** contain an `expected_answer` field, so a numerical answer-correctness or groundedness percentage is not claimed from the CSV alone.
-
-The identical retrieval result is expected because both generation providers receive the same final evidence context.
-
----
-
-# Evaluation Observations
-
-The evaluation retained difficult retrieval cases instead of removing them to make the results look better.
-
-One answerable question may still select a neighboring or policy-family source even when the broader policy topic is related. These cases remain useful for future retrieval tuning.
-
-Provider latency is also environment-dependent. The measured run above reflects the conditions under which the evaluation was executed and should not be treated as a fixed production SLA.
-
----
-
-# Provider Factory
-
-Provider creation is centralized in:
-
-```text
-providers/factory.py
-```
-
-The application requests a provider by name:
-
-```python
-generator = create_generator(
-    provider_name=provider_name,
-    session=session,
-    settings=settings,
-)
-```
-
-The factory returns the appropriate implementation.
-
-This design means adding another generation provider should require changes primarily in:
-
-```text
-providers/<new_provider>/
-providers/factory.py
-```
-
-plus configuration, UI selection, tests, and evaluation wiring.
-
----
-
-# Adding Another Provider
-
-A new provider should:
-
-1. Implement the existing `Generator` contract.
-2. Live inside the provider layer.
-3. Be registered in `providers/factory.py`.
-4. Receive credentials/settings through centralized configuration.
-5. Be added to the UI provider dropdown.
-6. Have mocked unit tests.
-7. Be added to the evaluation workflow.
-
-The provider should not introduce another retrieval system.
-
----
-
-# Error Handling
+## 20. Error Handling
 
 The application handles:
 
-- Unsupported provider values
-- Missing provider credentials
-- Missing provider model configuration
-- Provider authentication failures
-- Provider connection failures
-- Provider timeouts
-- Provider API failures
-- Empty provider responses
-- Retrieval failures
-- Invalid or insufficient evidence
-- Document validation, parsing, chunking, and indexing failures
+- unsupported provider values
+- missing provider credentials
+- missing provider model configuration
+- provider authentication failures
+- provider connection failures
+- provider timeouts
+- provider API failures
+- empty provider responses
+- retrieval failures
+- insufficient evidence
+- document validation failures
+- document parsing failures
+- chunking failures
+- indexing failures
 
-Provider and document errors are converted into user-facing messages while detailed diagnostics remain in the application logs.
+User-facing errors are intentionally separated from detailed diagnostics.
 
-The selected provider remains available in the UI after a failed request so the user can retry or change providers.
+The application does not expose API keys or raw stack traces through the normal UI.
+
+The selected Policy RAG provider remains available after a failed request so the user can retry or switch providers.
 
 ---
 
-# Logging
+## 21. Logging and Observability
 
-The logging layer is designed for operational debugging without exposing secrets or document contents.
+The logging layer is intended for operational troubleshooting without logging secrets or document contents.
 
-Typical document-management logs include:
+Typical document logs include:
 
 ```text
 Document ID
@@ -722,221 +952,259 @@ File type / size
 Processing stage
 Parsing start / completion
 Page count
-Chunking start / completion
 Chunk count
 Search refresh request
 Indexing status
 Operation duration
-Exception details on failure
+Failure details
 ```
 
-Typical question logs include provider, request duration, evidence count, and provider/retrieval failures where applicable.
+Typical request logs include:
 
-The application does **not** intentionally log API keys, credentials, raw extracted document content, raw prompts, or stage file contents.
+```text
+Provider
+Question length
+Evidence count
+Response duration
+Retrieval failures
+Generation failures
+```
+
+The application does not intentionally log:
+
+- API keys
+- credentials
+- raw extracted document contents
+- full raw prompts
+- stage file contents
 
 ---
 
-# Troubleshooting
+## 22. Troubleshooting
 
-## `ModuleNotFoundError`
+### `ModuleNotFoundError`
 
-Run from the project root and set:
+Run from the project root:
 
 ```powershell
 $env:PYTHONPATH = "."
 ```
 
-Then activate the virtual environment:
+Activate the virtual environment:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
 
-and reinstall dependencies:
+Then reinstall dependencies:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-## OpenRouter configuration error
+### Groq configuration error
 
 Check:
 
 ```text
-OPENROUTER_API_KEY
-OPENROUTER_MODEL
-OPENROUTER_MAX_TOKENS
-OPENROUTER_TIMEOUT
+GROQ_API_KEY
+GROQ_MODEL
+GROQ_MAX_TOKENS
+GROQ_TIMEOUT
 ```
 
-The current target model is:
+The current configured model is:
 
 ```text
-x-ai/grok-4.3
+openai/gpt-oss-20b
 ```
 
-## OpenRouter API failure
+### Groq API failure
 
-Check the provider configuration, account credits/model availability, timeout/network conditions, and provider logs. A provider API failure does not imply a retrieval failure because retrieval remains on Snowflake Cortex Search.
+Check:
 
-## Uploaded document not retrieved
+- `GROQ_API_KEY`
+- model availability
+- timeout configuration
+- network connectivity
+- provider-side rate limits
+- application logs
 
-Debug in this order:
+A Groq generation error does not imply a retrieval failure because Policy RAG retrieval remains on Snowflake Cortex Search.
+
+### Uploaded document not retrieved
+
+Debug the pipeline in this order:
 
 ```text
 Upload
   ↓
 Validation
   ↓
-Stage upload
+Stage Upload
   ↓
-Content extraction
+Content Extraction
   ↓
-Document metadata
+Document Metadata
   ↓
-Chunk creation
+Chunk Creation
   ↓
-Cortex Search indexing
+Cortex Search Indexing
   ↓
 Retrieval
   ↓
-Evidence filtering
+Evidence Filtering
   ↓
 Generation
 ```
 
-## Wrong source selected
+### Wrong policy source selected
 
-Check:
+Inspect:
 
-- document IDs
+- document ID
 - active/inactive state
 - processing status
 - chunk metadata
-- Cortex Search results
-- evidence filtering
+- Cortex Search candidates
+- evidence filtering logic
 
-Do not solve a retrieval problem only by modifying the generation prompt.
-
----
-
-# Git Workflow
-
-Use a dedicated feature branch for the extension:
-
-```powershell
-git checkout -b feature/multi-provider-genai
-```
-
-Commit changes:
-
-```powershell
-git add .
-git commit -m "feat: complete multi-provider GenAI extension"
-```
-
-Push:
-
-```powershell
-git push -u origin feature/multi-provider-genai
-```
-
-After review and validation, merge the feature branch into the target branch according to the project's Git workflow.
+A retrieval-quality issue should not be solved only by modifying the generation prompt.
 
 ---
 
-# Recommended Final Validation
+## 23. Security and Source-Control Practices
 
-Run these before merging:
+Before committing the project:
 
 ```powershell
-python -m pytest -q
 git status
 git ls-files .env
 ```
 
-The final application validation should include:
+`.env` should not be tracked.
+
+Only safe placeholders belong in:
 
 ```text
-Snowflake Cortex generation        ✓
-OpenRouter / Grok 4.3 generation   ✓
-Runtime provider switching         ✓
-Shared Cortex Search retrieval     ✓
-Grounded RAG evidence              ✓
-PDF upload                         ✓
-DOCX upload                        ✓
-TXT upload                         ✓
-Markdown upload                    ✓
-Upload progress / lifecycle UI     ✓
-Document management tab            ✓
-Retry                              ✓
-Re-index                           ✓
-Delete                             ✓
-Refresh                            ✓
-Question inline spinner            ✓
-Management inline spinner          ✓
-Provider error handling            ✓
-20-question evaluation             ✓
-Automated tests                    ✓
+.env.example
+```
+
+Do not place real PATs, API keys, or access tokens in source files, documentation, screenshots, notebooks, or committed test fixtures.
+
+---
+
+## 24. Final Validation Checklist
+
+### Core application
+
+```text
+Policy RAG mode                         ✓
+Support Analytics mode                 ✓
+Cortex Agent mode                      ✓
+Snowflake Cortex generation            ✓
+Groq generation                        ✓
+Runtime provider selection             ✓
+Shared Cortex Search retrieval         ✓
+Grounded evidence filtering            ✓
+```
+
+### Structured analytics
+
+```text
+500 support-ticket records             ✓
+SUPPORT_ANALYTICS semantic view        ✓
+Cortex Analyst integration             ✓
+Generated SQL visible in UI            ✓
+10/10 structured evaluation            ✓
+Direct SQL validation                  ✓
+```
+
+### Cortex Agent
+
+```text
+PolicySearch tool                      ✓
+SupportAnalytics tool                  ✓
+Policy-only routing                    ✓
+Analytics-only routing                 ✓
+Combined routing                       ✓
+12-question Agent evaluation           ✓
+Agent tool activity in UI              ✓
+```
+
+### Document management
+
+```text
+PDF upload                             ✓
+DOCX upload                            ✓
+TXT upload                             ✓
+Markdown upload                        ✓
+Processing lifecycle                  ✓
+Retry                                  ✓
+Re-index                               ✓
+Delete / deactivate                    ✓
+Refresh                                ✓
+```
+
+### Engineering
+
+```text
+Automated test suite                   ✓
+27 tests passing                       ✓
+Provider errors handled                ✓
+Structured logging                     ✓
+Externalized secrets                  ✓
 ```
 
 ---
 
-# Known Limitations
+## 25. Known Limitations
 
-- OpenRouter response latency can vary by model, account state, network conditions, and provider availability.
-- External provider credits and rate limits can prevent otherwise valid generation requests.
-- Cortex Search indexing and external provider services can introduce variable latency.
-- The supplied evaluation dataset does not include expected answers, so numerical answer-correctness and groundedness require explicit review.
-- Retrieval-quality tuning is still possible for difficult or ambiguous questions.
-- Some questions may require additional intent/entity logic to select the exact expected policy source.
-- The current progress indicator communicates the client-visible processing stages; it does not by itself guarantee that Cortex Search serving has completed an asynchronous refresh at the exact instant the refresh request returns.
-
----
-
-# Project Status
-
-```text
-Core RAG architecture              COMPLETE
-Snowflake Cortex Search            COMPLETE
-Snowflake Cortex generation        COMPLETE
-Provider contract                  COMPLETE
-Provider factory                   COMPLETE
-OpenRouter / Grok 4.3 generation   COMPLETE
-Runtime provider switching         COMPLETE
-Centralized configuration          COMPLETE
-Graceful provider errors           COMPLETE
-Dynamic document upload             COMPLETE
-PDF support                        COMPLETE
-DOCX support                       COMPLETE
-TXT support                        COMPLETE
-Markdown support                   COMPLETE
-Document Management tab            COMPLETE
-Retry / Re-index / Delete          COMPLETE
-Upload lifecycle progress          COMPLETE
-Question / management spinners     COMPLETE
-Latency display                    COMPLETE
-20-question evaluation             COMPLETE
-Automated multi-provider tests     COMPLETE
-README documentation               COMPLETE
-```
+- The Policy RAG evaluation dataset contains expected sources and answerability but does not contain reference answers. Therefore answer-level correctness and groundedness require explicit human review.
+- Retrieval quality can still be improved for difficult or ambiguous policy questions.
+- Provider latency varies with runtime environment, model behavior, network conditions, and provider availability.
+- Snowflake Search indexing and serving can introduce asynchronous or variable latency.
+- External provider rate limits can affect generation availability.
+- The current provider adapter retains the historical `providers/openai/` implementation path while using Groq's OpenAI-compatible API.
+- The temporary new-upload retrieval preference is intentionally limited to one subsequent question before normal active-document retrieval resumes.
 
 ---
 
-# Conclusion
+## 26. Definition of Done
 
-SupportAI demonstrates a practical enterprise-style support architecture where:
+The implementation satisfies the major extension objectives:
 
-- Snowflake Cortex Search remains the authoritative retrieval layer.
-- The RAG service remains provider-neutral.
-- Generation providers can be switched at runtime.
-- Uploaded knowledge documents can be managed dynamically.
-- Uploaded documents can be immediately tested with a one-question retrieval preference without being locked into upload-only search.
-- Evidence is selected before generation.
-- Unsupported questions receive a controlled refusal.
-- Provider and document failures are handled without exposing raw exceptions to the user.
-- Logging provides operational visibility while avoiding secrets and raw document content.
-- UI fragments and lightweight inline processing indicators reduce unnecessary full-page rerendering and make long-running operations clearer.
-- The same retrieved context can be used to compare different generation providers.
+| Acceptance criterion | Status |
+|---|---|
+| Existing Policy RAG remains functional | ✅ |
+| Multi-provider generation with Snowflake Cortex + Groq | ✅ |
+| 500+ synthetic support tickets | ✅ |
+| Support-ticket semantic layer | ✅ |
+| `SUPPORT_ANALYTICS` Semantic View | ✅ |
+| 10 structured analytics questions validated | ✅ |
+| Generated SQL visible in UI | ✅ |
+| Cortex Agent configured with Search + Analyst | ✅ |
+| Policy-only Agent routing | ✅ |
+| Analytics-only Agent routing | ✅ |
+| Combined Agent routing | ✅ |
+| Three-mode UI | ✅ |
+| 12-question Agent evaluation | ✅ |
+| 20-question Policy RAG evaluation | ✅ |
+| Automated test suite | ✅ |
 
-The result is a maintainable foundation for extending SupportAI with additional generation providers without rebuilding the retrieval and document-management architecture.
+---
+
+## 27. Conclusion
+
+SupportAI demonstrates a maintainable support-intelligence architecture in which:
+
+- **Snowflake Cortex Search** remains the authoritative policy retrieval layer.
+- **RAGService** controls evidence selection and grounding.
+- **Snowflake Cortex and Groq** provide interchangeable Policy RAG generation paths.
+- **Cortex Analyst** provides governed structured analytics through the `SUPPORT_ANALYTICS` semantic layer.
+- **Cortex Agent** orchestrates policy retrieval and structured analytics for cross-source questions.
+- **Document management** allows the knowledge base to evolve without redesigning the retrieval layer.
+- **Automated tests and repeatable evaluations** provide engineering confidence.
+- **Structured logging and user-friendly error handling** provide operational visibility without exposing secrets.
+
+The resulting platform is designed as an extensible foundation for enterprise customer-support workflows where policy guidance and operational support data need to be answered independently or combined into a single grounded response.

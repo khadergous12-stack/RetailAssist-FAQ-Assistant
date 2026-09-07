@@ -187,6 +187,15 @@ class RAGService:
 
     # These are intent labels, not document names or policy rules.  They are
     # deliberately generic so the solution works with future documents.
+    BROAD_POLICY_PATTERNS = (
+        r"\bwhat does (?:our|the) .+ policy say\b",
+        r"\bwhat is (?:our|the) .+ policy\b",
+        r"\btell me about (?:our|the) .+ policy\b",
+        r"\bexplain (?:our|the) .+ policy\b",
+        r"\bwhat are (?:our|the) .+ policy rules\b",
+        r"\boverview of (?:our|the) .+ policy\b",
+    )
+
     INTENT_PATTERNS = {
         "duration": (
             r"\bhow long\b",
@@ -309,9 +318,12 @@ class RAGService:
         logger.info("RAG retrieval started.")
 
         try:
+            retrieval_top_k = (
+                max(top_k, 8) if self._is_broad_policy_question(question) else top_k
+            )
             retrieved = self.retriever.retrieve(
                 query=question,
-                top_k=top_k,
+                top_k=retrieval_top_k,
             )
 
             # Targeted query expansion for ambiguous cross-domain wording.
@@ -630,6 +642,11 @@ class RAGService:
     # ------------------------------------------------------------------
     # Intent detection
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _is_broad_policy_question(cls, text: str) -> bool:
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        return any(re.search(pattern, value) for pattern in cls.BROAD_POLICY_PATTERNS)
 
     @classmethod
     def _intents(cls, text: str) -> set[str]:
@@ -1403,6 +1420,7 @@ class RAGService:
         # Keep a small amount of supporting evidence
         # --------------------------------------------------------------
         selected = []
+        evidence_limit = cls.MAX_EVIDENCE
 
         # --------------------------------------------------------------
         # Compound-intent evidence selection
@@ -1423,7 +1441,7 @@ class RAGService:
         def add_chunk(chunk):
             if chunk in selected:
                 return
-            if len(selected) < cls.MAX_EVIDENCE:
+            if len(selected) < evidence_limit:
                 selected.append(chunk)
 
         # First pass: satisfy explicit query intents.
@@ -1451,18 +1469,18 @@ class RAGService:
                     add_chunk(chunk)
                     break
 
-            if len(selected) >= cls.MAX_EVIDENCE:
+            if len(selected) >= evidence_limit:
                 break
 
         # Second pass: fill remaining slots with strongest evidence.
-        if len(selected) < cls.MAX_EVIDENCE:
+        if len(selected) < evidence_limit:
             for score, _, chunk in scored:
                 if score < best_score - 5.0:
                     continue
 
                 add_chunk(chunk)
 
-                if len(selected) >= cls.MAX_EVIDENCE:
+                if len(selected) >= evidence_limit:
                     break
 
         return selected

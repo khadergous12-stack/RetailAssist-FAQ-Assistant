@@ -9,6 +9,8 @@ import streamlit as st
 
 from app.controller import RetailAssistController
 from rag.service import RAGResponse
+from services.cortex_analyst import CortexAnalystResponse
+from services.cortex_agent import CortexAgentResponse
 
 
 logger = logging.getLogger(__name__)
@@ -409,11 +411,15 @@ def extract_relevant_section(
 # ============================================================
 
 
-def inject_box_styles() -> None:
+def inject_box_styles(theme: str = "light") -> None:
     """
     Inject professional, industry-style CSS for the SupportAI interface.
     This function changes presentation only; application logic is unchanged.
     """
+
+    theme = str(theme or "light").strip().lower()
+    if theme not in {"light", "dark"}:
+        theme = "light"
 
     st.markdown(
         textwrap.dedent(
@@ -451,8 +457,8 @@ def inject_box_styles() -> None:
             }
 
             .block-container {
-                max-width: 1180px;
-                padding-top: 4.6rem;
+                max-width: 1240px;
+                padding-top: 4.15rem;
                 padding-bottom: 3rem;
             }
 
@@ -859,6 +865,29 @@ def inject_box_styles() -> None:
                 line-height: 1.72;
             }
 
+            .ra-answer-text strong {
+                color: #111827;
+                font-weight: 800;
+            }
+
+            .ra-answer-text br + strong {
+                display: inline-block;
+                margin-top: 6px;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-answer-text strong {
+                color: #f8fafc !important;
+            }
+            
+            .ra-answer-text h1,
+            .ra-answer-text h2,
+            .ra-answer-text h3,
+            .ra-answer-text h4 {
+                font-size: 1.15rem !important;
+                line-height: 1.35 !important;
+                margin: 14px 0 8px !important;
+            }
+
             .ra-source-text {
                 color: #64748b;
                 line-height: 1.7;
@@ -866,8 +895,83 @@ def inject_box_styles() -> None:
             }
 
             /* =========================================================
+               Premium micro-interactions
+               ========================================================= */
+
+            .ra-hero,
+            .ra-product-tile,
+            .ra-context-card,
+            .ra-answer-box,
+            .ra-source-box {
+                transform: translateZ(0);
+                transition:
+                    transform 0.22s ease,
+                    box-shadow 0.22s ease,
+                    border-color 0.22s ease;
+            }
+
+            .ra-product-tile:hover,
+            .ra-context-card:hover {
+                transform: translateY(-3px);
+                box-shadow: 0 16px 34px rgba(15,23,42,0.10);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-tile:hover,
+            body:has(.ra-theme-marker-dark) .ra-context-card:hover {
+                box-shadow: 0 18px 40px rgba(0,0,0,0.30);
+            }
+
+            .ra-hero:hover {
+                box-shadow: 0 22px 54px rgba(15,23,42,0.19);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-hero:hover {
+                box-shadow: 0 24px 58px rgba(0,0,0,0.34);
+            }
+
+            .stButton > button {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .stButton > button::after {
+                content: "";
+                position: absolute;
+                top: -120%;
+                left: -35%;
+                width: 28%;
+                height: 340%;
+                transform: rotate(20deg);
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255,255,255,0.26),
+                    transparent
+                );
+                transition: left 0.55s ease;
+                pointer-events: none;
+            }
+
+            .stButton > button:hover::after {
+                left: 125%;
+            }
+
+            /* =========================================================
                Footer
                ========================================================= */
+
+            .ra-footer-credit {
+                display: inline-block;
+                margin-left: 10px;
+                padding-left: 10px;
+                border-left: 1px solid #cbd5e1;
+                color: #94a3b8;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-footer-credit {
+                border-left-color: #334155;
+                color: #64748b;
+            }
 
             .ra-footer {
                 margin-top: 34px;
@@ -912,6 +1016,925 @@ def inject_box_styles() -> None:
                 .ra-source-box {
                     padding: 17px 16px;
                 }
+            }
+
+            /* =========================================================
+               Premium customer-facing refresh
+               ========================================================= */
+
+            .block-container {
+                max-width: 1240px !important;
+                padding-top: 2.25rem !important;
+            }
+
+            .ra-hero {
+                padding: 30px 34px 34px !important;
+                margin-bottom: 18px !important;
+                border-radius: 26px !important;
+                background:
+                    radial-gradient(circle at 92% 10%, rgba(129, 140, 248, 0.34), transparent 28%),
+                    radial-gradient(circle at 14% 0%, rgba(56, 189, 248, 0.16), transparent 24%),
+                    linear-gradient(135deg, #0b1220 0%, #101a31 52%, #1b2350 100%) !important;
+                box-shadow: 0 24px 70px rgba(15, 23, 42, 0.20) !important;
+            }
+
+            .ra-hero .ra-brand-title {
+                font-size: 2.18rem !important;
+                letter-spacing: -0.045em !important;
+            }
+
+            .ra-hero .ra-brand-subtitle {
+                max-width: 760px;
+                font-size: 1rem !important;
+                line-height: 1.55 !important;
+                color: #d7def0 !important;
+            }
+
+            .ra-status-strip {
+                position: static !important;
+                margin-top: 26px;
+                pointer-events: auto !important;
+            }
+
+            .ra-status {
+                padding: 8px 12px !important;
+                background: rgba(255,255,255,0.08) !important;
+                border-color: rgba(255,255,255,0.14) !important;
+                color: #e8eefc !important;
+            }
+
+            .ra-product-strip {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 12px;
+                margin: 14px 0 26px;
+            }
+
+            .ra-product-tile {
+                padding: 14px 16px;
+                border-radius: 16px;
+                border: 1px solid rgba(148,163,184,0.22);
+                background: rgba(255,255,255,0.72);
+                box-shadow: 0 10px 30px rgba(15,23,42,0.05);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+
+            .ra-product-kicker {
+                font-size: 0.68rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 800;
+                color: #64748b;
+                margin-bottom: 4px;
+            }
+
+            .ra-product-value {
+                font-size: 0.92rem;
+                font-weight: 760;
+                color: #0f172a;
+            }
+
+            div[data-testid="stRadio"] {
+                padding: 6px;
+                border: 1px solid #dbe3ee;
+                border-radius: 20px;
+                background: rgba(255,255,255,0.78);
+                box-shadow: 0 10px 32px rgba(15,23,42,0.05);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+            }
+
+            div[data-testid="stRadio"] > label {
+                display: none;
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0,1fr));
+                gap: 6px;
+                width: 100%;
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] label {
+                min-height: 78px;
+                border-radius: 15px;
+                padding: 10px 12px;
+                border: 1px solid transparent;
+                background: transparent;
+                align-items: center;
+                transition: all 0.16s ease;
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+                background: #f8fafc;
+                border-color: #e2e8f0;
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+                background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+                border-color: #c7d2fe;
+                box-shadow: 0 8px 22px rgba(79,70,229,0.10);
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] p {
+                margin: 0 !important;
+            }
+
+            div[data-testid="stRadio"] div[role="radiogroup"] label span {
+                font-weight: 760;
+                color: #1e293b;
+            }
+
+            .ra-context-card {
+                margin-top: 12px;
+                padding: 13px 16px;
+                border-radius: 15px;
+                background: linear-gradient(135deg, #f8fafc 0%, #f5f3ff 100%);
+                border: 1px solid #e2e8f0;
+                color: #475569;
+                font-size: 0.88rem;
+                line-height: 1.55;
+            }
+
+            .ra-section-label {
+                margin-top: 18px !important;
+            }
+
+            div[data-testid="stFileUploader"] {
+                border-radius: 16px;
+            }
+
+            .ra-answer-box {
+                border-radius: 20px !important;
+                padding: 24px 26px !important;
+                background:
+                    radial-gradient(circle at 100% 0%, rgba(129,140,248,0.13), transparent 34%),
+                    linear-gradient(135deg, #ffffff 0%, #f7f8ff 100%) !important;
+                border: 1px solid #d8def2 !important;
+                box-shadow: 0 14px 38px rgba(49,46,129,0.08) !important;
+            }
+
+            .ra-answer-label {
+                color: #4f46e5 !important;
+            }
+
+            .ra-source-box {
+                border-radius: 18px !important;
+                background: rgba(255,255,255,0.88) !important;
+                box-shadow: 0 9px 28px rgba(15,23,42,0.05) !important;
+            }
+
+            .ra-source-box:hover {
+                transform: translateY(-2px) !important;
+            }
+
+            .ra-footer {
+                padding-bottom: 12px;
+            }
+
+            @media (max-width: 820px) {
+                .ra-product-strip,
+                div[data-testid="stRadio"] div[role="radiogroup"] {
+                    grid-template-columns: 1fr;
+                }
+
+                div[data-testid="stRadio"] div[role="radiogroup"] label {
+                    min-height: 58px;
+                }
+            }
+
+            /* =========================================================
+               Theme system
+               ========================================================= */
+
+            /* Compact theme switcher: one clean icon button beside Deploy. */
+            .st-key-supportai_theme_toggle {
+                position: fixed !important;
+                top: 9px !important;
+                right: clamp(112px, 6.8vw, 142px) !important;
+                z-index: 999999 !important;
+                width: 42px !important;
+                min-width: 42px !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            .st-key-supportai_theme_toggle > div {
+                width: 42px !important;
+            }
+
+            .st-key-supportai_theme_toggle .stButton,
+            .st-key-supportai_theme_toggle .stButton > div {
+                width: 42px !important;
+            }
+
+            .st-key-supportai_theme_toggle .stButton > button {
+                width: 42px !important;
+                height: 34px !important;
+                min-height: 34px !important;
+                padding: 0 !important;
+                border-radius: 999px !important;
+                border: 1px solid rgba(148,163,184,0.28) !important;
+                background: rgba(255,255,255,0.93) !important;
+                color: #334155 !important;
+                box-shadow:
+                    0 7px 20px rgba(15,23,42,0.15),
+                    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                transition: transform 0.16s ease, box-shadow 0.18s ease, background 0.18s ease !important;
+            }
+
+            .st-key-supportai_theme_toggle .stButton > button:hover {
+                transform: translateY(-1px) scale(1.04) !important;
+                box-shadow:
+                    0 10px 24px rgba(15,23,42,0.20),
+                    0 0 0 3px rgba(99,102,241,0.08) !important;
+            }
+
+            .st-key-supportai_theme_toggle .stButton > button span {
+                font-size: 0.92rem !important;
+                line-height: 1 !important;
+                font-weight: 850 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .st-key-supportai_theme_toggle .stButton > button {
+                background: rgba(12,18,31,0.92) !important;
+                color: #e2e8f0 !important;
+                border-color: rgba(148,163,184,0.24) !important;
+                box-shadow:
+                    0 9px 24px rgba(0,0,0,0.34),
+                    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .st-key-supportai_theme_toggle .stButton > button:hover {
+                box-shadow:
+                    0 11px 28px rgba(0,0,0,0.40),
+                    0 0 0 3px rgba(129,140,248,0.10) !important;
+            }
+
+            @media (max-width: 700px) {
+                .st-key-supportai_theme_toggle {
+                    top: 8px !important;
+                    right: 70px !important;
+                }
+                .st-key-supportai_theme_toggle .stButton > button {
+                    width: 38px !important;
+                    height: 32px !important;
+                    min-height: 32px !important;
+                }
+                .st-key-supportai_theme_toggle,
+                .st-key-supportai_theme_toggle > div,
+                .st-key-supportai_theme_toggle .stButton,
+                .st-key-supportai_theme_toggle .stButton > div {
+                    width: 38px !important;
+                }
+            }
+
+            /* ---------- Dark mode ---------- */
+
+            body:has(.ra-theme-marker-dark) .stApp {
+                color-scheme: dark;
+                background:
+                    radial-gradient(circle at 8% 4%, rgba(99,102,241,0.25), transparent 26%),
+                    radial-gradient(circle at 94% 14%, rgba(56,189,248,0.16), transparent 28%),
+                    radial-gradient(circle at 50% 92%, rgba(168,85,247,0.16), transparent 34%),
+                    linear-gradient(135deg, #060b17 0%, #0b1120 44%, #10182c 100%) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .main .block-container::before {
+                background-image: radial-gradient(rgba(129,140,248,0.11) 1px, transparent 1px);
+                opacity: 0.75;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-section-label,
+            body:has(.ra-theme-marker-dark) .ra-theme-label {
+                color: #93a4c5 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-section-title {
+                color: #f8fafc !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-helper {
+                color: #9aa9c2 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-tile {
+                background: rgba(15,23,42,0.78) !important;
+                border-color: rgba(148,163,184,0.17) !important;
+                box-shadow: 0 14px 34px rgba(0,0,0,0.22) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-kicker {
+                color: #94a3b8 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-value {
+                color: #eef2ff !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stRadio"] {
+                background: rgba(15,23,42,0.76) !important;
+                border-color: rgba(148,163,184,0.18) !important;
+                box-shadow: 0 14px 38px rgba(0,0,0,0.25) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+                background: rgba(30,41,59,0.92) !important;
+                border-color: rgba(129,140,248,0.22) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+                background: linear-gradient(135deg, rgba(79,70,229,0.26), rgba(99,102,241,0.16)) !important;
+                border-color: rgba(129,140,248,0.45) !important;
+                box-shadow: 0 10px 28px rgba(79,70,229,0.18) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stRadio"] div[role="radiogroup"] label span {
+                color: #e5e7eb !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-context-card {
+                background: linear-gradient(135deg, rgba(15,23,42,0.88), rgba(30,27,75,0.64)) !important;
+                border-color: rgba(129,140,248,0.22) !important;
+                color: #b9c4da !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] {
+                color: #dbe4f5 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] section,
+            body:has(.ra-theme-marker-dark) div[data-testid="stTextArea"],
+            body:has(.ra-theme-marker-dark) .ra-source-box {
+                background: rgba(15,23,42,0.78) !important;
+                border-color: rgba(148,163,184,0.18) !important;
+                box-shadow: 0 12px 34px rgba(0,0,0,0.22) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) textarea {
+                background: #0b1220 !important;
+                color: #f8fafc !important;
+                border-color: #334155 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) textarea::placeholder {
+                color: #71809a !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stTextArea"] label,
+            body:has(.ra-theme-marker-dark) .ra-source-question {
+                color: #dbe5f6 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-source-title {
+                color: #f1f5f9 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-source-meta,
+            body:has(.ra-theme-marker-dark) .ra-source-text {
+                color: #94a3b8 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-source-meta code {
+                background: #111827 !important;
+                border-color: #334155 !important;
+                color: #cbd5e1 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-source-number {
+                background: rgba(79,70,229,0.20) !important;
+                color: #c7d2fe !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-answer-box {
+                background:
+                    radial-gradient(circle at 100% 0%, rgba(129,140,248,0.22), transparent 34%),
+                    linear-gradient(135deg, rgba(17,24,39,0.96), rgba(20,24,54,0.96)) !important;
+                border-color: rgba(129,140,248,0.27) !important;
+                box-shadow: 0 16px 44px rgba(0,0,0,0.30) !important;
+                color: #e5e7eb !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-answer-text {
+                color: #e2e8f0 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-answer-meta-row {
+                color: #94a3b8 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-processing {
+                background: rgba(15,23,42,0.84) !important;
+                border-color: rgba(148,163,184,0.18) !important;
+                color: #cbd5e1 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-footer {
+                border-top-color: rgba(148,163,184,0.14) !important;
+                color: #64748b !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stMarkdown,
+            body:has(.ra-theme-marker-dark) p,
+            body:has(.ra-theme-marker-dark) label {
+                color: #dbe5f4;
+            }
+
+            /* ---------- Softer, richer light mode ---------- */
+
+            body:has(.ra-theme-marker-light) .stApp {
+                background:
+                    radial-gradient(circle at 7% 8%, rgba(99,102,241,0.18), transparent 27%),
+                    radial-gradient(circle at 93% 12%, rgba(14,165,233,0.18), transparent 28%),
+                    radial-gradient(circle at 36% 86%, rgba(236,72,153,0.08), transparent 26%),
+                    radial-gradient(circle at 68% 72%, rgba(168,85,247,0.12), transparent 30%),
+                    linear-gradient(135deg, #eaf0ff 0%, #f7f2ff 44%, #eaf8fb 100%) !important;
+            }
+
+            body:has(.ra-theme-marker-light) .main .block-container::before {
+                opacity: 0.95;
+            }
+
+            /* Theme controls use the same premium button language as the rest of the UI. */
+
+            .ra-theme-marker-light,
+            .ra-theme-marker-dark {
+                display: none !important;
+            }
+
+            .ra-theme-label {
+                margin-bottom: 6px;
+                text-align: right;
+            }
+
+            body:has(.ra-theme-marker-dark) .stButton > button:not([kind="primary"]) {
+                background: rgba(15,23,42,0.74) !important;
+                color: #dbe5f4 !important;
+                border-color: rgba(148,163,184,0.20) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab-list"] {
+                border-bottom-color: rgba(148,163,184,0.18) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"] {
+                color: #aab7cc !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [aria-selected="true"] {
+                color: #eef2ff !important;
+            }
+
+
+            /* =========================================================
+               Premium interaction layer / native Streamlit controls
+               ========================================================= */
+
+            .main .block-container {
+                transition: background 0.35s ease, color 0.35s ease;
+            }
+
+            .ra-hero,
+            .ra-product-tile,
+            .ra-context-card,
+            .ra-answer-box,
+            .ra-source-box,
+            .ra-processing {
+                transition: background 0.35s ease, border-color 0.25s ease,
+                            box-shadow 0.25s ease, transform 0.2s ease;
+            }
+
+            .ra-product-tile {
+                position: relative;
+                overflow: hidden;
+                cursor: default;
+            }
+
+            .ra-product-tile::after {
+                content: "";
+                position: absolute;
+                width: 120px;
+                height: 120px;
+                right: -44px;
+                top: -48px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(99,102,241,0.18), transparent 68%);
+                pointer-events: none;
+            }
+
+            .ra-product-tile:hover {
+                transform: translateY(-3px);
+                box-shadow: 0 16px 35px rgba(15,23,42,0.10) !important;
+            }
+
+            .ra-context-card {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .ra-context-card::before {
+                content: "";
+                position: absolute;
+                inset: 0 auto 0 0;
+                width: 3px;
+                background: linear-gradient(180deg, #6366f1, #06b6d4);
+                border-radius: 3px;
+            }
+
+            /* Inputs / Selectboxes */
+            div[data-testid="stSelectbox"] label,
+            div[data-testid="stMultiSelect"] label,
+            div[data-testid="stCheckbox"] label,
+            div[data-testid="stFileUploader"] label,
+            div[data-testid="stTextArea"] label {
+                font-weight: 700 !important;
+                letter-spacing: 0.01em;
+            }
+
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+            div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+                min-height: 44px;
+                border-radius: 12px !important;
+                border: 1px solid #d6deeb !important;
+                background: rgba(255,255,255,0.92) !important;
+                box-shadow: 0 6px 20px rgba(15,23,42,0.035);
+            }
+
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+            div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover {
+                border-color: #9da9f5 !important;
+                box-shadow: 0 8px 24px rgba(79,70,229,0.08);
+            }
+
+            /* Menus / popovers */
+            div[data-baseweb="popover"],
+            div[data-baseweb="menu"] {
+                border-radius: 14px !important;
+                box-shadow: 0 18px 45px rgba(15,23,42,0.18) !important;
+                overflow: hidden !important;
+            }
+
+            [role="option"] {
+                min-height: 38px;
+            }
+
+            [role="option"]:hover {
+                background: rgba(99,102,241,0.10) !important;
+            }
+
+            /* File uploader */
+            div[data-testid="stFileUploader"] section {
+                border-radius: 16px !important;
+                border: 1px dashed #b8c2d6 !important;
+                background: rgba(255,255,255,0.72) !important;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+                transition: all 0.2s ease;
+            }
+
+            div[data-testid="stFileUploader"] section:hover {
+                border-color: #818cf8 !important;
+                background: rgba(99,102,241,0.045) !important;
+            }
+
+            /* Tabs */
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 6px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid #dbe3ee;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                border-radius: 10px 10px 0 0;
+                padding: 9px 13px;
+                font-weight: 700;
+                transition: all 0.18s ease;
+            }
+
+            .stTabs [data-baseweb="tab"]:hover {
+                background: rgba(99,102,241,0.07);
+            }
+
+            /* Expanders */
+            details[data-testid="stExpander"] {
+                border-radius: 14px !important;
+                border: 1px solid #dbe3ee !important;
+                overflow: hidden;
+                background: rgba(255,255,255,0.66);
+            }
+
+            /* Buttons */
+            .stButton > button {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .stButton > button::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(105deg, transparent 34%, rgba(255,255,255,0.18) 50%, transparent 66%);
+                transform: translateX(-130%);
+                transition: transform 0.55s ease;
+                pointer-events: none;
+            }
+
+            .stButton > button:hover::after {
+                transform: translateX(130%);
+            }
+
+            /* Dark: native Streamlit controls */
+            body:has(.ra-theme-marker-dark) div[data-testid="stSelectbox"] label,
+            body:has(.ra-theme-marker-dark) div[data-testid="stMultiSelect"] label,
+            body:has(.ra-theme-marker-dark) div[data-testid="stCheckbox"] label,
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] label,
+            body:has(.ra-theme-marker-dark) div[data-testid="stTextArea"] label {
+                color: #e2e8f0 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+            body:has(.ra-theme-marker-dark) div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+                background: rgba(15,23,42,0.92) !important;
+                border-color: #334155 !important;
+                color: #f8fafc !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.18) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stSelectbox"] [data-baseweb="select"] *,
+            body:has(.ra-theme-marker-dark) div[data-testid="stMultiSelect"] [data-baseweb="select"] * {
+                color: #e5e7eb !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-baseweb="popover"],
+            body:has(.ra-theme-marker-dark) div[data-baseweb="menu"] {
+                background: #0f172a !important;
+                border: 1px solid #334155 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) [role="option"] {
+                color: #e5e7eb !important;
+            }
+
+            body:has(.ra-theme-marker-dark) [role="option"]:hover {
+                background: #1e293b !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] section {
+                background: linear-gradient(135deg, rgba(15,23,42,0.90), rgba(23,24,65,0.76)) !important;
+                border-color: #475569 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] section:hover {
+                border-color: #818cf8 !important;
+                background: rgba(79,70,229,0.10) !important;
+            }
+
+            /* Dark uploader internals: Streamlit keeps its own native button colors. */
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] button {
+                background: #1b2640 !important;
+                color: #e8eef9 !important;
+                border: 1px solid #4b5f82 !important;
+                box-shadow: 0 5px 14px rgba(0,0,0,0.18) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] button:hover {
+                background: #243250 !important;
+                border-color: #818cf8 !important;
+                color: #ffffff !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] button svg {
+                fill: currentColor !important;
+                color: currentColor !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] {
+                color: #aebbd0 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] span,
+            body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] small {
+                color: #93a4bf !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab-list"] {
+                border-bottom-color: #243047 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"] {
+                color: #b7c3d8 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"]:hover {
+                background: rgba(99,102,241,0.10) !important;
+                color: #f8fafc !important;
+            }
+
+            body:has(.ra-theme-marker-dark) details[data-testid="stExpander"] {
+                background: rgba(15,23,42,0.72) !important;
+                border-color: #2c3a52 !important;
+            }
+
+            body:has(.ra-theme-marker-dark) details[data-testid="stExpander"] summary,
+            body:has(.ra-theme-marker-dark) details[data-testid="stExpander"] summary * {
+                color: #e5e7eb !important;
+            }
+
+            /* Dark data grid frame */
+            body:has(.ra-theme-marker-dark) div[data-testid="stDataFrame"] {
+                border: 1px solid #2a3750 !important;
+                border-radius: 14px !important;
+                overflow: hidden !important;
+                box-shadow: 0 12px 30px rgba(0,0,0,0.20);
+                background: #0f172a !important;
+            }
+
+            /* Dark checkbox */
+            body:has(.ra-theme-marker-dark) div[data-testid="stCheckbox"] span {
+                color: #dbe5f4 !important;
+            }
+
+            /* Theme-aware typography for native markdown */
+            body:has(.ra-theme-marker-dark) .stMarkdown,
+            body:has(.ra-theme-marker-dark) .stMarkdown p,
+            body:has(.ra-theme-marker-dark) .stMarkdown li,
+            body:has(.ra-theme-marker-dark) .stCaption,
+            body:has(.ra-theme-marker-dark) small {
+                color: #cbd5e1;
+            }
+
+            /* =========================================================
+               Premium background ambiance
+               ========================================================= */
+
+            .ra-bg-ambience {
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                z-index: -1;
+                overflow: hidden;
+            }
+
+            .ra-bg-ambience::before,
+            .ra-bg-ambience::after {
+                content: "";
+                position: absolute;
+                border-radius: 50%;
+                filter: blur(34px);
+                opacity: 0.28;
+                animation: ra-ambient-float 16s ease-in-out infinite alternate;
+            }
+
+            .ra-bg-ambience::before {
+                width: 360px;
+                height: 360px;
+                left: -120px;
+                top: 24%;
+                background: radial-gradient(circle, rgba(99,102,241,0.24), transparent 70%);
+            }
+
+            .ra-bg-ambience::after {
+                width: 420px;
+                height: 420px;
+                right: -150px;
+                bottom: 3%;
+                background: radial-gradient(circle, rgba(6,182,212,0.18), transparent 70%);
+                animation-delay: -5s;
+            }
+
+            @keyframes ra-ambient-float {
+                from { transform: translate3d(0,0,0) scale(0.96); }
+                to { transform: translate3d(30px,-18px,0) scale(1.06); }
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-bg-ambience::before {
+                background: radial-gradient(circle, rgba(99,102,241,0.24), transparent 70%);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-bg-ambience::after {
+                background: radial-gradient(circle, rgba(34,211,238,0.15), transparent 70%);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .ra-bg-ambience::before,
+                .ra-bg-ambience::after,
+                .ra-hero::before,
+                .ra-hero::after {
+                    animation: none !important;
+                }
+
+                .ra-product-tile,
+                .ra-source-box,
+                .stButton > button {
+                    transition: none !important;
+                }
+            }
+
+
+            /* Document inventory table */
+            .ra-doc-table-wrap {
+                margin-top: 14px;
+                border: 1px solid #dbe3ee;
+                border-radius: 16px;
+                overflow: auto;
+                background: rgba(255,255,255,0.68);
+                box-shadow: 0 10px 28px rgba(15,23,42,0.045);
+            }
+
+            .ra-doc-table {
+                width: 100%;
+                min-width: 920px;
+                border-collapse: separate;
+                border-spacing: 0;
+                font-size: 0.78rem;
+                color: #475569;
+            }
+
+            .ra-doc-table th {
+                position: sticky;
+                top: 0;
+                z-index: 1;
+                text-align: left;
+                padding: 11px 12px;
+                background: linear-gradient(180deg, #f8fafc, #eef2f7);
+                color: #64748b;
+                font-size: 0.67rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 850;
+                border-bottom: 1px solid #dbe3ee;
+                white-space: nowrap;
+            }
+
+            .ra-doc-table td {
+                padding: 10px 12px;
+                border-bottom: 1px solid #e8edf4;
+                white-space: nowrap;
+                vertical-align: middle;
+            }
+
+            .ra-doc-table tr:last-child td { border-bottom: 0; }
+            .ra-doc-table tbody tr { transition: background 0.16s ease, transform 0.16s ease; }
+            .ra-doc-table tbody tr:hover { background: rgba(99,102,241,0.055); }
+            .ra-doc-name { color: #1e293b; font-weight: 700; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+
+            .ra-doc-status,
+            .ra-doc-active {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 4px 8px;
+                border-radius: 999px;
+                font-size: 0.67rem;
+                font-weight: 800;
+            }
+
+            .ra-doc-status.indexed { color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; }
+            .ra-doc-status.other { color: #92400e; background: #fef3c7; border: 1px solid #fde68a; }
+            .ra-active-dot, .ra-inactive-dot { width: 6px; height: 6px; border-radius: 50%; display:inline-block; }
+            .ra-active-dot { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.12); }
+            .ra-inactive-dot { background: #94a3b8; }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-table-wrap {
+                background: rgba(15,23,42,0.82);
+                border-color: #293750;
+                box-shadow: 0 12px 32px rgba(0,0,0,0.22);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-table {
+                color: #aebbd0;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-table th {
+                background: linear-gradient(180deg, #172136, #121b2d);
+                color: #91a0b8;
+                border-bottom-color: #2a3850;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-table td {
+                border-bottom-color: #1e2a3e;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-table tbody tr:hover {
+                background: rgba(99,102,241,0.08);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-name {
+                color: #e6edf8;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-status.indexed {
+                color: #bbf7d0;
+                background: rgba(22,101,52,0.22);
+                border-color: rgba(34,197,94,0.22);
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-doc-status.other {
+                color: #fde68a;
+                background: rgba(146,64,14,0.20);
+                border-color: rgba(245,158,11,0.22);
             }
 
             </style>
@@ -1004,7 +2027,10 @@ def render_response(
 
     shown_sources = set()
 
-    for source_number, chunk in enumerate(response.evidence, start=1):
+    # Display only the 3 most relevant evidence chunks.
+    display_evidence = (response.evidence or [])[:3]
+
+    for source_number, chunk in enumerate(display_evidence, start=1):
         source_question, source_text = extract_relevant_section(
             question,
             chunk.chunk_text,
@@ -1076,6 +2102,270 @@ def render_response(
         st.markdown(source_html, unsafe_allow_html=True)
 
 
+def render_analytics_response(
+    response: CortexAnalystResponse,
+    question: str,
+    latency_seconds: float | None = None,
+) -> None:
+    """Render a Cortex Analyst answer and its generated SQL."""
+    st.markdown(
+        '<div class="ra-section-label">Response</div>'
+        '<div class="ra-section-title">Support Analytics</div>',
+        unsafe_allow_html=True,
+    )
+
+    answer = str(response.answer or "").strip()
+
+    # Use the executed Cortex Analyst result as the user-facing answer.
+    result = response.result or []
+
+    if result:
+        first_row = result[0]
+        keys = {str(key).lower(): key for key in first_row.keys()}
+
+        # Handle monthly ticket-volume results.
+        month_key = next(
+            (keys[key] for key in keys if "month" in key),
+            None,
+        )
+
+        count_key = next(
+            (keys[key] for key in keys if "count" in key or "ticket_count" in key),
+            None,
+        )
+
+        if month_key and count_key and len(result) > 1:
+            lines = ["Monthly ticket volume:"]
+
+            for row in result:
+                month = row.get(month_key)
+                count = row.get(count_key)
+
+                if hasattr(month, "strftime"):
+                    month = month.strftime("%B %Y")
+
+                lines.append(f"{month}: {count} tickets")
+
+            answer = "\n".join(lines)
+
+        # Handle single-row results such as highest/lowest category.
+        elif len(result) == 1:
+            values = []
+
+            for key, value in first_row.items():
+                clean_key = str(key).replace("_", " ").title()
+                values.append(f"{clean_key}: {value}")
+
+            answer = ", ".join(values)
+
+        # Generic multi-row fallback.
+        else:
+            lines = []
+
+            for row in result:
+                row_values = []
+
+                for key, value in row.items():
+                    clean_key = str(key).replace("_", " ").title()
+                    row_values.append(f"{clean_key}: {value}")
+
+                lines.append(", ".join(row_values))
+
+            answer = "\n".join(lines)
+
+    st.markdown(
+        '<div class="ra-answer-box">'
+        '<div class="ra-answer-label">STRUCTURED ANALYTICS RESPONSE</div>'
+        f'<div class="ra-answer-text">{html.escape(answer).replace(chr(10), "<br>")}</div>'
+        + (
+            f'<div class="ra-answer-meta-row"><span>Latency: '
+            f"<strong>{float(latency_seconds):.2f}s</strong></span></div>"
+            if latency_seconds is not None
+            else ""
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if response.sql:
+        with st.expander("Generated SQL", expanded=False):
+            st.code(response.sql, language="sql")
+
+    if response.request_id:
+        st.caption(f"Request ID: {response.request_id}")
+
+
+def clean_agent_answer(answer: str) -> str:
+    """
+    Remove unnecessary process narration from the Cortex Agent's final answer.
+    Keeps the actual policy/analytics response intact.
+    """
+    if not answer:
+        return ""
+
+    text = str(answer).strip()
+
+    # Remove common process-narration sentences at the beginning.
+    opening_patterns = [
+        r"^\s*I'll look into .*?\.\s*",
+        r"^\s*I will look into .*?\.\s*",
+        r"^\s*Let me check .*?\.\s*",
+        r"^\s*Let me .*?\.\s*",
+        r"^\s*I'll pull .*?\.\s*",
+        r"^\s*I have .*?\.\s*",
+        r"^\s*Now I'll .*?\.\s*",
+        r"^\s*Here's .*?\.\s*",
+    ]
+
+    for pattern in opening_patterns:
+        text = re.sub(
+            pattern,
+            "",
+            text,
+            count=1,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+    # For combined answers, remove everything before the first meaningful heading.
+    heading_match = re.search(
+        r"(?m)^\s*(\*\*[^*\n]+\*\*|#{1,6}\s+.+?)\s*$",
+        text,
+    )
+
+    if heading_match and heading_match.start() > 0:
+        prefix = text[: heading_match.start()].strip().lower()
+
+        process_words = (
+            "look into",
+            "let me",
+            "i have",
+            "now i'll",
+            "here's",
+            "pull the",
+            "query the",
+            "full picture",
+        )
+
+        if any(word in prefix for word in process_words):
+            text = text[heading_match.start() :].strip()
+
+    # Remove timeout / continuation text if it appears at the end.
+    text = re.sub(
+        r"\s*I've reached the time limit for this request\..*?$",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    text = re.sub(
+        r"\s*The analysis may be incomplete\..*?$",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    text = re.sub(
+        r"\s*Would you like (?:me|to) .*?$",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    return text.strip()
+
+
+def format_agent_answer_html(answer: str) -> str:
+    """Render common Cortex Agent markdown as clean customer-facing HTML."""
+    if not answer:
+        return ""
+
+    text = str(answer).strip()
+
+    # Convert Markdown headings such as "## Refund Policy" into bold labels.
+    text = re.sub(
+        r"(?m)^\s*#{1,6}\s+(.+?)\s*$",
+        r"<strong>\1</strong>",
+        text,
+    )
+
+    # Convert bold Markdown into real HTML bold.
+    text = re.sub(
+        r"\*\*(.+?)\*\*",
+        r"<strong>\1</strong>",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # Remove remaining Markdown emphasis markers without changing the words.
+    text = re.sub(r"(?<!\w)[*_](.+?)[*_](?!\w)", r"\1", text)
+
+    # Render Markdown-style line breaks as HTML line breaks.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\n", "<br>")
+
+    return text
+
+
+def render_agent_response(
+    response: CortexAgentResponse,
+    latency_seconds: float | None = None,
+) -> None:
+    """Render a Snowflake Cortex Agent response and tool activity."""
+    st.markdown(
+        '<div class="ra-section-label">Response</div>'
+        '<div class="ra-section-title">Cortex Agent</div>',
+        unsafe_allow_html=True,
+    )
+
+    answer = clean_agent_answer(
+        str(response.answer or "No agent response was returned.")
+    )
+    agent_answer_html = format_agent_answer_html(answer)
+
+    st.markdown(
+        '<div class="ra-answer-box">'
+        '<div class="ra-answer-label">CORTEX AGENT RESPONSE</div>'
+        f'<div class="ra-answer-text">{agent_answer_html}</div>'
+        + (
+            f'<div class="ra-answer-meta-row"><span>Latency: '
+            f"<strong>{float(latency_seconds):.2f}s</strong></span></div>"
+            if latency_seconds is not None
+            else ""
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Agent activity ", expanded=False):
+        used_tools = getattr(response, "used_tools", None) or []
+
+        if used_tools:
+            for tool in used_tools:
+                normalized = str(tool).strip().lower()
+
+                if (
+                    "policysearch" in normalized
+                    or "cortex_search" in normalized
+                    or "search" in normalized
+                ):
+                    st.write("✓ PolicySearch — Cortex Search")
+
+                elif (
+                    "supportanalytics" in normalized
+                    or "cortex_analyst" in normalized
+                    or "analyst" in normalized
+                ):
+                    st.write("✓ SupportAnalytics — Cortex Analyst")
+
+                else:
+                    st.write(f"✓ {tool}")
+        else:
+            st.caption("No tool activity was reported by the Cortex Agent.")
+
+    if response.request_id:
+        st.caption(f"Request ID: {response.request_id}")
+
+
 def render_processing_indicator(message: str, container=None) -> None:
     """Render a lightweight inline spinner without dimming the page."""
     target = container if container is not None else st
@@ -1086,6 +2376,53 @@ def render_processing_indicator(message: str, container=None) -> None:
         </div>""".format(html.escape(str(message))),
         unsafe_allow_html=True,
     )
+
+
+def render_document_table(rows: list[dict]) -> None:
+    """Render the document inventory as a theme-aware HTML table."""
+    headers = [
+        "Filename",
+        "Type",
+        "Category",
+        "Status",
+        "Pages",
+        "Chunks",
+        "Active",
+        "Uploaded",
+    ]
+    header_html = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
+    body_parts = []
+    for row in rows:
+        status = str(row.get("Status", ""))
+        active = bool(row.get("Active", False))
+        status_class = "indexed" if status.upper() == "INDEXED" else "other"
+        active_html = (
+            '<span class="ra-active-dot"></span>Active'
+            if active
+            else '<span class="ra-inactive-dot"></span>Inactive'
+        )
+        body_parts.append(
+            "<tr>"
+            f'<td class="ra-doc-name">{html.escape(str(row.get("Filename", "")))}</td>'
+            f"<td>{html.escape(str(row.get('Type', '')))}</td>"
+            f"<td>{html.escape(str(row.get('Category', '')))}</td>"
+            f'<td><span class="ra-doc-status {status_class}">{html.escape(status)}</span></td>'
+            f"<td>{html.escape(str(row.get('Pages', '')))}</td>"
+            f"<td>{html.escape(str(row.get('Chunks', '')))}</td>"
+            f'<td><span class="ra-doc-active">{active_html}</span></td>'
+            f"<td>{html.escape(str(row.get('Uploaded', '')))}</td>"
+            "</tr>"
+        )
+
+    table_html = (
+        '<div class="ra-doc-table-wrap">'
+        '<table class="ra-doc-table">'
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(body_parts)}</tbody>"
+        "</table>"
+        "</div>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 def _render_document_management_impl(controller: RetailAssistController) -> None:
@@ -1178,11 +2515,7 @@ def _render_document_management_impl(controller: RetailAssistController) -> None
                 }
             )
 
-        st.dataframe(
-            rows,
-            width="stretch",
-            hide_index=True,
-        )
+        render_document_table(rows)
 
         labels = [
             f"{doc.get('ORIGINAL_FILENAME', '')} — "
@@ -1394,57 +2727,96 @@ def _render_document_management_impl(controller: RetailAssistController) -> None
 def _render_support_ai_impl(controller: RetailAssistController) -> None:
     """Render the main interactive SupportAI area locally."""
     # -----------------------------------------------------
-    # AI provider selection
+    # Assistant mode selection
     # -----------------------------------------------------
 
     st.markdown(
         """
-        <div class="ra-section-label">Generation</div>
-        <div class="ra-section-title">AI Provider</div>
+        <div class="ra-section-label">Workspace</div>
+        <div class="ra-section-title">Choose your support intelligence</div>
         <div class="ra-helper">
-            Select the provider to use for the next response.
-            Retrieval continues through Snowflake Cortex Search.
+            Use policy-grounded answers, operational analytics, or the intelligent
+            Cortex Agent for questions that cross both sources.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    provider = st.selectbox(
-        "AI Provider",
-        [
-            "Snowflake Cortex",
-            "Groq (GPT-OSS 20B)",
-        ],
-        key="ai_provider",
+    with st.container():
+        mode = st.radio(
+            "Assistant Mode",
+            [
+                "Policy RAG",
+                "Support Analytics",
+                "Cortex Agent",
+            ],
+            key="assistant_mode",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+    mode_tagline = {
+        "Policy RAG": "Trusted policy answers with source-backed evidence.",
+        "Support Analytics": "Natural-language insights from live support-ticket data.",
+        "Cortex Agent": "One intelligent interface that routes policy + analytics automatically.",
+    }[mode]
+    st.markdown(
+        f'<div class="ra-context-card">✦ &nbsp;<strong>{html.escape(mode)}</strong> &nbsp;·&nbsp; {html.escape(mode_tagline)}</div>',
+        unsafe_allow_html=True,
     )
 
-    provider_name = {
-        "Snowflake Cortex": "snowflake",
-        "Groq (GPT-OSS 20B)": "openai",
-    }[provider]
+    provider = "Snowflake Cortex"
+    provider_name = "snowflake"
 
-    try:
-        current_provider = controller.get_provider()
-
-        if current_provider != provider_name:
-            logger.info(
-                "UI provider selection changed | from=%s | to=%s",
-                current_provider,
-                provider_name,
-            )
-            controller.set_provider(provider_name)
-        else:
-            logger.debug(
-                "UI provider unchanged | provider=%s",
-                provider_name,
-            )
-
-    except Exception as exc:
-        logger.exception(
-            "UI provider selection failed | provider=%s",
-            provider_name,
+    if mode == "Policy RAG":
+        st.markdown(
+            """
+            <div class="ra-section-label">Generation</div>
+            <div class="ra-section-title">AI Provider</div>
+            <div class="ra-helper">
+                Select the provider to use for the next response.
+                Retrieval continues through Snowflake Cortex Search.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        st.error(f"Unable to select {provider}: {exc}")
+
+        provider = st.selectbox(
+            "AI Provider",
+            [
+                "Snowflake Cortex",
+                "Groq (GPT-OSS 20B)",
+            ],
+            key="ai_provider",
+        )
+
+        provider_name = {
+            "Snowflake Cortex": "snowflake",
+            "Groq (GPT-OSS 20B)": "openai",
+        }[provider]
+
+        try:
+            current_provider = controller.get_provider()
+
+            if current_provider != provider_name:
+                logger.info(
+                    "UI provider selection changed | from=%s | to=%s",
+                    current_provider,
+                    provider_name,
+                )
+                controller.set_provider(provider_name)
+            else:
+                logger.debug(
+                    "UI provider unchanged | provider=%s",
+                    provider_name,
+                )
+
+        except Exception as exc:
+            logger.exception(
+                "UI provider selection failed | provider=%s",
+                provider_name,
+            )
+            st.error(f"Unable to select {provider}: {exc}")
 
     # -----------------------------------------------------
     # Knowledge base document upload
@@ -1624,12 +2996,31 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
     # FAQ / customer support
     # -----------------------------------------------------
 
+    mode_content = {
+        "Policy RAG": (
+            "Ask your policy question",
+            "Ask about any policy available in the knowledge base.",
+            "Example: Does the warranty cover accidental damage?",
+        ),
+        "Support Analytics": (
+            "Ask your support analytics question",
+            "Ask about support-ticket volume, status, resolution time, ratings, escalations, refunds, or other structured metrics.",
+            "Example: Which category has the highest average resolution time?",
+        ),
+        "Cortex Agent": (
+            "Ask SupportAI",
+            "Ask a policy question, an analytics question, or a combined question. The agent automatically selects the appropriate Snowflake tools.",
+            "Example: What does our refund policy say and how many refund tickets did we receive last month?",
+        ),
+    }
+    section_title, helper_text, question_placeholder = mode_content[mode]
+
     st.markdown(
-        """
+        f"""
         <div class="ra-section-label">Customer support</div>
-        <div class="ra-section-title">Ask your policy question</div>
+        <div class="ra-section-title">{html.escape(section_title)}</div>
         <div class="ra-helper">
-            Ask about any policy available in the knowledge base.
+            {html.escape(helper_text)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1637,7 +3028,7 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
 
     question = st.text_area(
         "Question",
-        placeholder=("Example: Does the warranty cover accidental damage?"),
+        placeholder=question_placeholder,
         height=118,
         label_visibility="collapsed",
         key="supportai_question",
@@ -1680,8 +3071,9 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
         request_start = time.perf_counter()
 
         logger.info(
-            "UI question processing started | provider=%s | question_length=%s",
-            provider_name,
+            "UI question processing started | mode=%s | provider=%s | question_length=%s",
+            mode,
+            provider_name if mode == "Policy RAG" else "snowflake-native",
             len(question.strip()),
         )
 
@@ -1694,66 +3086,93 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
         )
 
         try:
-            # The upload scope exists only for THIS question. With no pending
-            # upload scope, the retriever searches the complete knowledge base.
-            if callable(set_scope):
+            # Uploaded-document scoping is part of the existing Policy RAG flow.
+            # Analytics and Agent modes do not use the RAG retriever directly.
+            if mode == "Policy RAG" and callable(set_scope):
                 set_scope(retrieval_document_ids or None)
 
             request_status = st.empty()
-            render_processing_indicator(
-                f"Retrieving evidence and generating with {provider}...",
-                request_status,
-            )
-            response = controller.ask(question.strip())
-            request_status.empty()
 
-            elapsed = time.perf_counter() - request_start
+            if mode == "Policy RAG":
+                processing_message = (
+                    f"Retrieving evidence and generating with {provider}..."
+                )
+            elif mode == "Support Analytics":
+                processing_message = (
+                    "Analyzing support-ticket data with Cortex Analyst..."
+                )
+            else:
+                processing_message = "Routing your question through the Cortex Agent..."
 
-            logger.info(
-                "UI question processing completed | provider=%s | duration=%.3fs | evidence=%s",
-                provider_name,
-                elapsed,
-                len(response.evidence or []),
-            )
+            render_processing_indicator(processing_message, request_status)
 
-            render_response(
-                response,
-                question,
-                provider,
-                elapsed,
-            )
+            if mode == "Policy RAG":
+                response = controller.ask_policy(
+                    question.strip(),
+                    top_k=3,
+                )
+                request_status.empty()
+                elapsed = time.perf_counter() - request_start
+                logger.info(
+                    "UI Policy RAG completed | provider=%s | duration=%.3fs | evidence=%s",
+                    provider_name,
+                    elapsed,
+                    len(response.evidence or []),
+                )
+                render_response(response, question, provider, elapsed)
+
+            elif mode == "Support Analytics":
+                response = controller.ask_analytics(question.strip())
+                request_status.empty()
+                elapsed = time.perf_counter() - request_start
+                logger.info(
+                    "UI Support Analytics completed | duration=%.3fs | sql_present=%s",
+                    elapsed,
+                    bool(response.sql),
+                )
+                render_analytics_response(response, question, elapsed)
+
+            else:
+                response = controller.ask_agent(question.strip())
+                request_status.empty()
+                elapsed = time.perf_counter() - request_start
+                logger.info(
+                    "UI Cortex Agent completed | duration=%.3fs",
+                    elapsed,
+                )
+                render_agent_response(response, elapsed)
 
         except ValueError as exc:
             logger.warning(
-                "UI question validation failed | provider=%s | error=%s",
-                provider_name,
+                "UI question validation failed | mode=%s | error=%s",
+                mode,
                 exc,
             )
             st.error(str(exc))
 
         except RuntimeError as exc:
             logger.exception(
-                "UI request failed with runtime error | provider=%s | duration=%.3fs",
-                provider_name,
+                "UI request failed with runtime error | mode=%s | duration=%.3fs",
+                mode,
                 time.perf_counter() - request_start,
             )
             st.error(str(exc))
 
         except Exception:
             logger.exception(
-                "Unexpected UI request failure | provider=%s | duration=%.3fs",
-                provider_name,
+                "Unexpected UI request failure | mode=%s | duration=%.3fs",
+                mode,
                 time.perf_counter() - request_start,
             )
             st.error(
-                f"{provider} could not generate a response. "
-                "Please check the provider configuration and try again."
+                "SupportAI could not generate a response. "
+                "Please check the Snowflake/provider configuration and try again."
             )
 
         finally:
             # Consume the one-question upload preference regardless of whether
             # the request succeeded. The document itself remains in Snowflake
-            # and is searchable normally on future questions.
+            # and is searchable normally on future Policy RAG questions.
             st.session_state.pop("supportai_pending_document_ids", None)
             if callable(set_scope):
                 set_scope(None)
@@ -1774,7 +3193,7 @@ else:
 
 
 def render_welcome_animation() -> None:
-    """Show a one-time, non-blocking 11-second welcome animation."""
+    """Show a short, presentation-only premium welcome animation."""
     if st.session_state.get("supportai_welcome_shown", False):
         return
 
@@ -1788,220 +3207,302 @@ def render_welcome_animation() -> None:
             position: fixed;
             inset: 0;
             z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: grid;
+            place-items: center;
             overflow: hidden;
+            pointer-events: auto;
             background:
-                radial-gradient(circle at 18% 20%, rgba(99,102,241,0.22), transparent 34%),
-                radial-gradient(circle at 82% 24%, rgba(14,165,233,0.20), transparent 34%),
-                radial-gradient(circle at 50% 90%, rgba(168,85,247,0.18), transparent 38%),
-                linear-gradient(135deg, #0b1220 0%, #111827 48%, #1e1b4b 100%);
-            animation: supportai-welcome-exit 0.9s ease 10.1s forwards;
+                radial-gradient(circle at 20% 18%, rgba(99,102,241,0.22), transparent 30%),
+                radial-gradient(circle at 82% 20%, rgba(56,189,248,0.18), transparent 28%),
+                radial-gradient(circle at 52% 88%, rgba(168,85,247,0.16), transparent 34%),
+                rgba(7, 12, 24, 0.94);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            animation: supportai-welcome-exit 0.8s ease 3.7s forwards;
         }
 
-        .supportai-welcome-orb {
+        .supportai-welcome-grid {
             position: absolute;
-            width: 34vw;
-            height: 34vw;
-            min-width: 280px;
-            min-height: 280px;
+            inset: -20%;
+            opacity: 0.34;
+            background-image:
+                linear-gradient(rgba(148,163,184,0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148,163,184,0.06) 1px, transparent 1px);
+            background-size: 52px 52px;
+            transform: perspective(700px) rotateX(58deg) translateY(18%);
+            transform-origin: center bottom;
+            animation: supportai-welcome-grid 5s ease-in-out infinite;
+        }
+
+        .supportai-welcome-glow {
+            position: absolute;
+            width: min(44vw, 680px);
+            height: min(44vw, 680px);
+            min-width: 320px;
+            min-height: 320px;
             border-radius: 50%;
-            filter: blur(30px);
-            opacity: 0.28;
-            animation: supportai-welcome-float 6s ease-in-out infinite alternate;
+            background:
+                radial-gradient(circle, rgba(99,102,241,0.28) 0%, rgba(56,189,248,0.10) 35%, transparent 70%);
+            filter: blur(22px);
+            animation: supportai-welcome-glow 4.8s ease-in-out infinite alternate;
         }
 
-        .supportai-welcome-orb.one {
-            top: -10vw;
-            left: -8vw;
-            background: #6366f1;
-        }
-
-        .supportai-welcome-orb.two {
-            right: -10vw;
-            bottom: -12vw;
-            background: #0ea5e9;
-            animation-delay: -2s;
-        }
-
-        .supportai-welcome-card {
+        .supportai-welcome-mark {
             position: relative;
-            width: min(760px, 88vw);
+            z-index: 2;
             text-align: center;
-            color: white;
-            padding: 48px 28px 42px;
-            border-radius: 28px;
-            background: rgba(15, 23, 42, 0.52);
-            border: 1px solid rgba(255,255,255,0.15);
-            box-shadow:
-                0 30px 80px rgba(0,0,0,0.35),
-                inset 0 1px 0 rgba(255,255,255,0.08);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
-            animation: supportai-welcome-card-in 1.1s cubic-bezier(.2,.8,.2,1) both;
-        }
-
-        .supportai-welcome-icon {
-            width: 74px;
-            height: 74px;
-            margin: 0 auto 22px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 22px;
-            font-size: 38px;
-            background: rgba(255,255,255,0.12);
-            border: 1px solid rgba(255,255,255,0.20);
-            box-shadow: 0 0 0 10px rgba(255,255,255,0.025);
-            animation: supportai-welcome-pulse 2.2s ease-in-out infinite;
+            padding: 28px 34px;
+            animation: supportai-welcome-rise 0.95s cubic-bezier(.2,.8,.2,1) both;
         }
 
         .supportai-welcome-kicker {
-            margin-bottom: 10px;
-            color: #c7d2fe;
-            font-size: 0.82rem;
-            font-weight: 800;
-            letter-spacing: 0.16em;
+            margin-bottom: 14px;
+            color: #a5b4fc;
+            font-size: clamp(0.72rem, 1.7vw, 0.88rem);
+            font-weight: 850;
+            letter-spacing: 0.34em;
             text-transform: uppercase;
-            animation: supportai-welcome-rise 0.9s ease 0.15s both;
+            text-indent: 0.34em;
+        }
+
+        .supportai-welcome-overlay h1.supportai-welcome-title {
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            opacity: 1 !important;
+            mix-blend-mode: normal !important;
+            filter: none !important;
+            text-rendering: geometricPrecision;
         }
 
         .supportai-welcome-title {
+            position: relative;
+            display: inline-block;
             margin: 0;
-            font-size: clamp(2.7rem, 7vw, 5rem);
-            line-height: 1;
-            font-weight: 850;
-            letter-spacing: -0.045em;
-            background: linear-gradient(90deg, #ffffff 0%, #e0e7ff 50%, #bae6fd 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: supportai-welcome-rise 0.95s ease 0.28s both;
+            font-size: clamp(4rem, 11vw, 8rem);
+            line-height: 0.92;
+            font-weight: 900;
+            letter-spacing: -0.065em;
+            color: #f8fafc;
+            text-shadow:
+                0 0 28px rgba(129,140,248,0.18),
+                0 0 70px rgba(56,189,248,0.10);
+            overflow: hidden;
+        }
+
+        .supportai-welcome-title::before {
+            content: "";
+            position: absolute;
+            inset: -18% auto -18% -55%;
+            width: 34%;
+            transform: skewX(-18deg);
+            background:
+                linear-gradient(
+                    90deg,
+                    transparent 0%,
+                    rgba(255,255,255,0.02) 18%,
+                    rgba(255,255,255,0.42) 48%,
+                    rgba(191,219,254,0.95) 53%,
+                    rgba(255,255,255,0.16) 62%,
+                    transparent 100%
+                );
+            filter: blur(1px);
+            animation: supportai-welcome-shine 2.8s cubic-bezier(.4,0,.2,1) 0.45s infinite;
+            pointer-events: none;
+        }
+
+        .supportai-welcome-title::after {
+            content: "";
+            position: absolute;
+            left: 8%;
+            right: 8%;
+            bottom: -10px;
+            height: 2px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, transparent, rgba(129,140,248,0.92), rgba(56,189,248,0.92), transparent);
+            box-shadow: 0 0 24px rgba(99,102,241,0.35);
+            transform: scaleX(0);
+            transform-origin: center;
+            animation: supportai-welcome-line 1.15s ease 0.65s forwards;
         }
 
         .supportai-welcome-subtitle {
-            max-width: 650px;
-            margin: 18px auto 0;
+            margin: 24px auto 0;
+            max-width: 760px;
             color: #cbd5e1;
-            font-size: clamp(1rem, 2vw, 1.18rem);
+            font-size: clamp(0.95rem, 2vw, 1.15rem);
             line-height: 1.65;
-            animation: supportai-welcome-rise 0.95s ease 0.48s both;
+            letter-spacing: 0.01em;
+            animation: supportai-welcome-rise 0.9s ease 0.48s both;
         }
 
         .supportai-welcome-status {
-            margin: 28px auto 0;
-            display: inline-flex;
-            align-items: center;
-            gap: 9px;
-            padding: 8px 14px;
-            border-radius: 999px;
-            color: #e2e8f0;
-            background: rgba(255,255,255,0.07);
-            border: 1px solid rgba(255,255,255,0.12);
-            font-size: 0.82rem;
-            font-weight: 700;
-            animation: supportai-welcome-rise 0.95s ease 0.66s both;
+            margin-top: 22px;
+            color: #94a3b8;
+            font-size: 0.76rem;
+            font-weight: 750;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            animation: supportai-welcome-rise 0.9s ease 0.7s both;
         }
 
-        .supportai-welcome-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #22c55e;
-            box-shadow: 0 0 0 5px rgba(34,197,94,0.11);
-            animation: supportai-welcome-dot 1.4s ease-in-out infinite;
-        }
-
-        .supportai-welcome-bar {
-            width: min(420px, 72vw);
-            height: 4px;
-            margin: 24px auto 0;
-            overflow: hidden;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.10);
-            animation: supportai-welcome-rise 0.9s ease 0.82s both;
-        }
-
-        .supportai-welcome-bar::after {
+        .supportai-welcome-status::before {
             content: "";
-            display: block;
-            height: 100%;
-            width: 18%;
-            border-radius: inherit;
-            background: linear-gradient(90deg, #6366f1, #38bdf8);
-            animation: supportai-welcome-progress 10s linear 0.95s forwards;
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            margin: 0 9px 1px 0;
+            border-radius: 50%;
+            background: #34d399;
+            box-shadow: 0 0 0 5px rgba(52,211,153,0.09), 0 0 16px rgba(52,211,153,0.38);
+            animation: supportai-welcome-dot 1.35s ease-in-out infinite;
         }
 
-        @keyframes supportai-welcome-card-in {
+        .supportai-welcome-orbit {
+            position: absolute;
+            width: min(74vw, 980px);
+            height: min(30vw, 360px);
+            min-width: 560px;
+            border: 1px solid rgba(165,180,252,0.15);
+            border-radius: 50%;
+            transform: rotate(-8deg);
+            box-shadow: 0 0 34px rgba(99,102,241,0.06);
+            animation: supportai-welcome-orbit 7s ease-in-out infinite alternate;
+        }
+
+        .supportai-welcome-orbit.two {
+            transform: rotate(18deg) scaleY(0.78);
+            border-color: rgba(56,189,248,0.11);
+            animation-delay: -2.4s;
+        }
+
+        .supportai-welcome-spark {
+            position: absolute;
+            z-index: 3;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e0e7ff;
+            box-shadow:
+                0 0 0 5px rgba(224,231,255,0.05),
+                0 0 24px rgba(129,140,248,0.68);
+            animation: supportai-welcome-spark 3.4s linear infinite;
+        }
+
+        .supportai-welcome-spark.s2 {
+            animation-delay: -1.1s;
+            transform: scale(0.72);
+            opacity: 0.72;
+        }
+
+        .supportai-welcome-spark.s3 {
+            animation-delay: -2.25s;
+            transform: scale(0.54);
+            opacity: 0.54;
+        }
+
+        @keyframes supportai-welcome-rise {
             from { opacity: 0; transform: translateY(18px) scale(0.985); }
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        @keyframes supportai-welcome-rise {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes supportai-welcome-shine {
+            0%, 12% { left: -55%; opacity: 0; }
+            18% { opacity: 1; }
+            54% { left: 116%; opacity: 1; }
+            70%, 100% { left: 116%; opacity: 0; }
         }
 
-        @keyframes supportai-welcome-pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.045); }
+        @keyframes supportai-welcome-line {
+            to { transform: scaleX(1); }
         }
 
-        @keyframes supportai-welcome-float {
-            from { transform: translate3d(0, 0, 0) scale(0.95); }
-            to { transform: translate3d(22px, -18px, 0) scale(1.08); }
+        @keyframes supportai-welcome-grid {
+            0%, 100% { transform: perspective(700px) rotateX(58deg) translateY(18%) translateX(0); }
+            50% { transform: perspective(700px) rotateX(58deg) translateY(14%) translateX(-18px); }
+        }
+
+        @keyframes supportai-welcome-glow {
+            from { transform: translate3d(-3%, -2%, 0) scale(0.96); opacity: 0.78; }
+            to { transform: translate3d(4%, 4%, 0) scale(1.06); opacity: 1; }
+        }
+
+        @keyframes supportai-welcome-orbit {
+            from { transform: rotate(-8deg) translateX(-10px); opacity: 0.52; }
+            to { transform: rotate(-1deg) translateX(18px); opacity: 0.86; }
+        }
+
+        @keyframes supportai-welcome-spark {
+            0% { top: 30%; left: 16%; }
+            35% { top: 18%; left: 78%; }
+            68% { top: 74%; left: 84%; }
+            100% { top: 30%; left: 16%; }
         }
 
         @keyframes supportai-welcome-dot {
-            0%, 100% { opacity: 0.7; transform: scale(0.92); }
-            50% { opacity: 1; transform: scale(1.08); }
-        }
-
-        @keyframes supportai-welcome-progress {
-            from { width: 18%; }
-            to { width: 100%; }
+            0%, 100% { transform: scale(0.86); opacity: 0.72; }
+            50% { transform: scale(1.15); opacity: 1; }
         }
 
         @keyframes supportai-welcome-exit {
-            0% { opacity: 1; visibility: visible; pointer-events: auto; }
-            82% { opacity: 1; visibility: visible; }
+            0% { opacity: 1; visibility: visible; }
+            78% { opacity: 1; visibility: visible; }
             100% { opacity: 0; visibility: hidden; pointer-events: none; }
         }
 
-        @media (max-width: 768px) {
-            .supportai-welcome-card {
-                padding: 38px 20px 34px;
-                border-radius: 22px;
+        @media (prefers-reduced-motion: reduce) {
+            .supportai-welcome-overlay,
+            .supportai-welcome-grid,
+            .supportai-welcome-glow,
+            .supportai-welcome-mark,
+            .supportai-welcome-title::before,
+            .supportai-welcome-title::after,
+            .supportai-welcome-subtitle,
+            .supportai-welcome-status,
+            .supportai-welcome-orbit,
+            .supportai-welcome-spark,
+            .supportai-welcome-status::before {
+                animation: none !important;
             }
-            .supportai-welcome-icon {
-                width: 62px;
-                height: 62px;
-                border-radius: 18px;
-                font-size: 31px;
+            .supportai-welcome-overlay {
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .supportai-welcome-mark {
+                padding: 22px;
+            }
+            .supportai-welcome-subtitle {
+                max-width: 88vw;
+            }
+            .supportai-welcome-orbit {
+                width: 112vw;
+                min-width: 0;
             }
         }
         </style>
 
         <div class="supportai-welcome-overlay" aria-label="Welcome to SupportAI">
-            <div class="supportai-welcome-orb one"></div>
-            <div class="supportai-welcome-orb two"></div>
-            <div class="supportai-welcome-card">
-                <div class="supportai-welcome-icon">✦</div>
+            <div class="supportai-welcome-grid"></div>
+            <div class="supportai-welcome-glow"></div>
+            <div class="supportai-welcome-orbit"></div>
+            <div class="supportai-welcome-orbit two"></div>
+            <div class="supportai-welcome-spark s1"></div>
+            <div class="supportai-welcome-spark s2"></div>
+            <div class="supportai-welcome-spark s3"></div>
+            <div class="supportai-welcome-mark">
                 <div class="supportai-welcome-kicker">Welcome to</div>
-                <h1 class="supportai-welcome-title">SupportAI</h1>
+                <h1 class="supportai-welcome-title" style="color:#ffffff !important; -webkit-text-fill-color:#ffffff !important; opacity:1 !important;">SupportAI</h1>
                 <div class="supportai-welcome-subtitle">
-                    Your AI-powered customer support assistant,
-                    grounded in trusted policy knowledge.
+                    Intelligent customer support powered by trusted knowledge,
+                    operational analytics, and Snowflake-native agent orchestration.
                 </div>
-                <div class="supportai-welcome-status">
-                    <span class="supportai-welcome-dot"></span>
-                    Preparing your intelligent support workspace
-                </div>
-                <div class="supportai-welcome-bar"></div>
+                <div class="supportai-welcome-status">Initializing your support workspace</div>
             </div>
         </div>
-            """
+        """
         ),
         unsafe_allow_html=True,
     )
@@ -2017,16 +3518,51 @@ def run_app(
     st.set_page_config(
         page_title="SupportAI | Customer Support Assistant",
         page_icon="✦",
-        layout="centered",
+        layout="wide",
         initial_sidebar_state="collapsed",
     )
 
-    inject_box_styles()
+    # ---------------------------------------------------------
+    # Appearance preference (UI-only)
+    # ---------------------------------------------------------
+
+    if "supportai_theme" not in st.session_state:
+        st.session_state["supportai_theme"] = "light"
+
+    theme = st.session_state["supportai_theme"]
+    inject_box_styles(theme)
+
+    st.markdown(
+        f'<div class="ra-theme-marker-{html.escape(theme)}" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Single icon toggle beside the native Streamlit toolbar.
+    with st.container(key="supportai_theme_toggle"):
+        next_icon = "☀" if theme == "dark" else "◐"
+        toggle_clicked = st.button(
+            next_icon,
+            key="supportai_theme_button",
+            help="Switch to the light workspace theme."
+            if theme == "dark"
+            else "Switch to the dark workspace theme.",
+            type="secondary",
+        )
+
+    if toggle_clicked:
+        st.session_state["supportai_theme"] = "light" if theme == "dark" else "dark"
+        st.rerun()
+
     render_welcome_animation()
 
     # ---------------------------------------------------------
     # Product hero
     # ---------------------------------------------------------
+
+    st.markdown(
+        '<div class="ra-bg-ambience" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
@@ -2036,19 +3572,31 @@ def run_app(
             <div>
                 <div class="ra-brand-title">SupportAI</div>
                 <div class="ra-brand-subtitle">
-                    AI-powered customer support grounded in trusted policy knowledge.
-                    Ask a question and receive a concise answer backed by approved evidence.
+                    An intelligent customer-support workspace for trusted policy answers,
+                    support analytics, and agent-powered resolution.
                 </div>
             </div>
         </div>
 
     <div class="ra-status-strip">
-        <span class="ra-status">
-            <span class="ra-status-dot"></span>
-                Policy-grounded
-            </span>
-        <span class="ra-status">Snowflake Cortex</span>
-        <span class="ra-status">FAQ Knowledge Base</span>
+        <span class="ra-status"><span class="ra-status-dot"></span> Production-ready workspace</span>
+        <span class="ra-status">Snowflake Native Intelligence</span>
+        <span class="ra-status">Grounded &amp; Traceable</span>
+    </div>
+    </div>
+
+    <div class="ra-product-strip">
+        <div class="ra-product-tile">
+            <div class="ra-product-kicker">Knowledge</div>
+            <div class="ra-product-value">Policy-grounded responses</div>
+        </div>
+        <div class="ra-product-tile">
+            <div class="ra-product-kicker">Operations</div>
+            <div class="ra-product-value">Live support-ticket insights</div>
+        </div>
+        <div class="ra-product-tile">
+            <div class="ra-product-kicker">Automation</div>
+            <div class="ra-product-value">Cortex Agent orchestration</div>
         </div>
     </div>
     """,
@@ -2087,7 +3635,8 @@ def run_app(
     st.markdown(
         """
         <div class="ra-footer">
-            SupportAI • Grounded answers from approved policy evidence
+            <strong>SupportAI</strong> • Grounded answers from approved policy evidence
+            <span class="ra-footer-credit">Built for intelligent customer support</span>
         </div>
         """,
         unsafe_allow_html=True,

@@ -7,22 +7,31 @@ import pytest
 from config.settings import Settings
 from providers.factory import create_generator
 from providers.openai.generator import OpenAIGenerator
-from rag.contracts import Generator
 from rag.service import RAGResponse, RAGService
 
 
-def test_provider_factory_creates_openrouter_generator(monkeypatch):
-    """Factory should return the second provider implementation."""
+def clear_groq_env(monkeypatch):
+    """Remove real Groq environment values so tests use test settings."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+    monkeypatch.delenv("GROQ_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("GROQ_TIMEOUT", raising=False)
+
+
+def test_provider_factory_creates_groq_generator(monkeypatch):
+    """Factory should return the Groq-backed second provider implementation."""
+
+    clear_groq_env(monkeypatch)
 
     settings = Settings(
-        openrouter_api_key="test-key",
-        openrouter_model="test-model",
-        openrouter_max_tokens=128,
-        openrouter_timeout=30.0,
+        groq_api_key="test-key",
+        groq_model="test-model",
+        groq_max_tokens=128,
+        groq_timeout=30.0,
     )
 
     generator = create_generator(
-        provider_name="openrouter",
+        provider_name="openai",
         settings=settings,
     )
 
@@ -56,42 +65,44 @@ def test_provider_factory_rejects_unsupported_provider():
         )
 
 
-def test_openrouter_missing_api_key():
-    """Missing OpenRouter credentials should be reported clearly."""
+def test_groq_missing_api_key(monkeypatch):
+    """Missing Groq credentials should be reported clearly."""
+
+    clear_groq_env(monkeypatch)
 
     settings = Settings(
-        openrouter_api_key=None,
-        openrouter_model="test-model",
-        openrouter_max_tokens=128,
-        openrouter_timeout=30.0,
+        groq_api_key=None,
+        groq_model="test-model",
+        groq_max_tokens=128,
+        groq_timeout=30.0,
     )
 
     with pytest.raises(
         ValueError,
-        match="OpenRouter API key is not configured",
+        match="Groq API key is not configured",
     ):
         OpenAIGenerator(settings=settings)
 
 
-def test_openrouter_missing_model():
-    """Missing OpenRouter model configuration should be reported clearly."""
+def test_groq_uses_default_model_when_not_configured(monkeypatch):
+    """Groq generator should use its configured fallback model."""
+
+    clear_groq_env(monkeypatch)
 
     settings = Settings(
-        openrouter_api_key="test-key",
-        openrouter_model=None,
-        openrouter_max_tokens=128,
-        openrouter_timeout=30.0,
+        groq_api_key="test-key",
+        groq_model=None,
+        groq_max_tokens=128,
+        groq_timeout=30.0,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="OpenRouter model is not configured",
-    ):
-        OpenAIGenerator(settings=settings)
+    generator = OpenAIGenerator(settings=settings)
+
+    assert generator.model == "openai/gpt-oss-20b"
 
 
-def test_openrouter_implements_generator_contract():
-    """Second provider must expose the same Generator interface."""
+def test_groq_implements_generator_contract():
+    """Groq provider must expose the same Generator interface."""
 
     assert callable(
         getattr(
@@ -102,8 +113,10 @@ def test_openrouter_implements_generator_contract():
     )
 
 
-def test_openrouter_generation_success(monkeypatch):
-    """Successful provider calls should return generated text."""
+def test_groq_generation_success(monkeypatch):
+    """Successful Groq provider calls should return generated text."""
+
+    clear_groq_env(monkeypatch)
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -124,14 +137,13 @@ def test_openrouter_generation_success(monkeypatch):
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
     settings = Settings(
-        openrouter_api_key="test-key",
-        openrouter_model="test-model",
-        openrouter_max_tokens=128,
-        openrouter_timeout=30.0,
+        groq_api_key="test-key",
+        groq_model="test-model",
+        groq_max_tokens=128,
+        groq_timeout=30.0,
     )
 
     generator = OpenAIGenerator(settings=settings)
-
     generator.client = FakeClient()
 
     result = generator.generate("test prompt")
@@ -139,8 +151,10 @@ def test_openrouter_generation_success(monkeypatch):
     assert result == "Grounded test answer."
 
 
-def test_openrouter_api_failure_is_wrapped():
+def test_groq_api_failure_is_wrapped(monkeypatch):
     """Provider failures should become a user-safe RuntimeError."""
+
+    clear_groq_env(monkeypatch)
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -151,19 +165,18 @@ def test_openrouter_api_failure_is_wrapped():
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
     settings = Settings(
-        openrouter_api_key="test-key",
-        openrouter_model="test-model",
-        openrouter_max_tokens=128,
-        openrouter_timeout=30.0,
+        groq_api_key="test-key",
+        groq_model="test-model",
+        groq_max_tokens=128,
+        groq_timeout=30.0,
     )
 
     generator = OpenAIGenerator(settings=settings)
-
     generator.client = FakeClient()
 
     with pytest.raises(
         RuntimeError,
-        match="OpenRouter generation failed",
+        match="Groq generation failed",
     ):
         generator.generate("test prompt")
 
