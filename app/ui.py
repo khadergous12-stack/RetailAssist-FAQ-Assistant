@@ -2249,6 +2249,15 @@ def clean_agent_answer(answer: str) -> str:
         if any(word in prefix for word in process_words):
             text = text[heading_match.start() :].strip()
 
+    # Remove a stray one-word continuation sometimes returned at the end
+    # by the Cortex Agent (for example, a dangling "What").
+    text = re.sub(
+        r"(?m)\n\s*(?:What)\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
     # Remove timeout / continuation text if it appears at the end.
     text = re.sub(
         r"\s*I've reached the time limit for this request\..*?$",
@@ -2743,7 +2752,7 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
     )
 
     with st.container():
-        mode = st.radio(
+        mode = st.selectbox(
             "Assistant Mode",
             [
                 "Policy RAG",
@@ -2751,7 +2760,6 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
                 "Cortex Agent",
             ],
             key="assistant_mode",
-            horizontal=True,
             label_visibility="collapsed",
         )
 
@@ -3193,121 +3201,266 @@ else:
 
 
 def render_welcome_animation() -> None:
-    """Show a short, presentation-only premium welcome animation."""
+    """Show a short, cinematic product-intro animation on first load only."""
     if st.session_state.get("supportai_welcome_shown", False):
         return
 
     st.session_state["supportai_welcome_shown"] = True
 
-    st.markdown(
-        textwrap.dedent(
-            """
+    welcome_html = textwrap.dedent(
+        """
         <style>
+        /* =========================================================
+           SupportAI — cinematic product-intro welcome
+           Intentionally restrained: premium, precise, fast.
+           ========================================================= */
+
         .supportai-welcome-overlay {
             position: fixed;
             inset: 0;
             z-index: 999999;
+            overflow: hidden;
             display: grid;
             place-items: center;
-            overflow: hidden;
-            pointer-events: auto;
             background:
-                radial-gradient(circle at 20% 18%, rgba(99,102,241,0.22), transparent 30%),
-                radial-gradient(circle at 82% 20%, rgba(56,189,248,0.18), transparent 28%),
-                radial-gradient(circle at 52% 88%, rgba(168,85,247,0.16), transparent 34%),
-                rgba(7, 12, 24, 0.94);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            animation: supportai-welcome-exit 0.8s ease 3.7s forwards;
+                radial-gradient(circle at 50% 48%, rgba(99,102,241,0.18), transparent 19%),
+                radial-gradient(circle at 18% 16%, rgba(56,189,248,0.11), transparent 25%),
+                radial-gradient(circle at 84% 78%, rgba(139,92,246,0.12), transparent 26%),
+                #050912;
+            pointer-events: auto;
+            animation: supportai-intro-exit 4.9s cubic-bezier(.76,0,.24,1) forwards;
+        }
+
+        .supportai-welcome-overlay::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(
+                    115deg,
+                    transparent 0%,
+                    transparent 34%,
+                    rgba(255,255,255,0.035) 46%,
+                    rgba(129,140,248,0.08) 50%,
+                    rgba(255,255,255,0.025) 54%,
+                    transparent 66%,
+                    transparent 100%
+                );
+            transform: translateX(-120%);
+            animation: supportai-intro-sheen 4.3s cubic-bezier(.35,0,.2,1) 0.55s infinite;
+            pointer-events: none;
+        }
+
+        .supportai-welcome-noise {
+            position: absolute;
+            inset: 0;
+            opacity: 0.13;
+            background-image:
+                radial-gradient(rgba(255,255,255,0.42) 0.6px, transparent 0.8px);
+            background-size: 5px 5px;
+            mix-blend-mode: soft-light;
+            pointer-events: none;
         }
 
         .supportai-welcome-grid {
             position: absolute;
-            inset: -20%;
-            opacity: 0.34;
+            left: -16%;
+            right: -16%;
+            bottom: -22%;
+            height: 58%;
+            opacity: 0.16;
             background-image:
-                linear-gradient(rgba(148,163,184,0.06) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(148,163,184,0.06) 1px, transparent 1px);
-            background-size: 52px 52px;
-            transform: perspective(700px) rotateX(58deg) translateY(18%);
+                linear-gradient(rgba(148,163,184,0.10) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148,163,184,0.10) 1px, transparent 1px);
+            background-size: 58px 58px;
+            transform: perspective(900px) rotateX(63deg);
             transform-origin: center bottom;
-            animation: supportai-welcome-grid 5s ease-in-out infinite;
+            mask-image: linear-gradient(to top, black, transparent 88%);
+            animation: supportai-intro-grid 8s ease-in-out infinite alternate;
+            pointer-events: none;
         }
 
-        .supportai-welcome-glow {
+        .supportai-welcome-radar {
             position: absolute;
-            width: min(44vw, 680px);
-            height: min(44vw, 680px);
-            min-width: 320px;
-            min-height: 320px;
+            width: min(70vw, 920px);
+            height: min(70vw, 920px);
+            min-width: 440px;
+            min-height: 440px;
+            border-radius: 50%;
+            border: 1px solid rgba(165,180,252,0.07);
+            box-shadow:
+                0 0 90px rgba(99,102,241,0.05),
+                inset 0 0 70px rgba(56,189,248,0.025);
+            animation: supportai-intro-radar 7.2s ease-in-out infinite alternate;
+        }
+
+        .supportai-welcome-ring {
+            position: absolute;
+            width: min(52vw, 720px);
+            height: min(20vw, 270px);
+            min-width: 470px;
+            min-height: 210px;
+            border-radius: 50%;
+            border: 1px solid rgba(129,140,248,0.12);
+            transform: rotate(-12deg);
+            box-shadow: 0 0 42px rgba(99,102,241,0.04);
+            animation: supportai-intro-ring 7.5s ease-in-out infinite alternate;
+        }
+
+        .supportai-welcome-ring.two {
+            width: min(63vw, 860px);
+            height: min(25vw, 330px);
+            border-color: rgba(56,189,248,0.065);
+            transform: rotate(17deg) scaleY(0.76);
+            animation-delay: -2.8s;
+        }
+
+        .supportai-welcome-core {
+            position: absolute;
+            width: min(23vw, 320px);
+            height: min(23vw, 320px);
+            min-width: 220px;
+            min-height: 220px;
             border-radius: 50%;
             background:
-                radial-gradient(circle, rgba(99,102,241,0.28) 0%, rgba(56,189,248,0.10) 35%, transparent 70%);
-            filter: blur(22px);
-            animation: supportai-welcome-glow 4.8s ease-in-out infinite alternate;
+                radial-gradient(circle at center,
+                    rgba(165,180,252,0.23) 0%,
+                    rgba(99,102,241,0.10) 24%,
+                    rgba(56,189,248,0.035) 48%,
+                    transparent 72%);
+            filter: blur(5px);
+            opacity: 0;
+            animation:
+                supportai-intro-core 1.2s cubic-bezier(.2,.8,.2,1) 0.32s forwards,
+                supportai-intro-breathe 4.8s ease-in-out 1.52s infinite alternate;
         }
 
-        .supportai-welcome-mark {
+        .supportai-welcome-emblem {
             position: relative;
-            z-index: 2;
+            z-index: 6;
+            width: 82px;
+            height: 82px;
+            border-radius: 24px;
+            display: grid;
+            place-items: center;
+            margin: 0 auto 25px;
+            background:
+                linear-gradient(145deg, rgba(255,255,255,0.14), rgba(129,140,248,0.08));
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.18),
+                0 12px 45px rgba(0,0,0,0.18),
+                0 0 38px rgba(99,102,241,0.13);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            opacity: 0;
+            transform: translateY(18px) scale(0.86);
+            animation: supportai-intro-emblem 0.9s cubic-bezier(.2,.8,.2,1) 0.1s forwards;
+        }
+
+        .supportai-welcome-emblem::before {
+            content: "";
+            position: absolute;
+            inset: -9px;
+            border-radius: 28px;
+            border: 1px solid rgba(129,140,248,0.10);
+            transform: scale(0.72);
+            opacity: 0;
+            animation: supportai-intro-emblem-ring 1.1s ease 0.54s forwards;
+        }
+
+        .supportai-welcome-emblem-mark {
+            color: #ffffff;
+            font-size: 2.25rem;
+            line-height: 1;
+            font-weight: 900;
+            text-shadow:
+                0 0 15px rgba(255,255,255,0.28),
+                0 0 34px rgba(129,140,248,0.38);
+        }
+
+        .supportai-welcome-content {
+            position: relative;
+            z-index: 5;
+            width: min(94vw, 1060px);
             text-align: center;
-            padding: 28px 34px;
-            animation: supportai-welcome-rise 0.95s cubic-bezier(.2,.8,.2,1) both;
+            padding: 28px 24px 40px;
+            margin-top: -3px;
         }
 
         .supportai-welcome-kicker {
-            margin-bottom: 14px;
-            color: #a5b4fc;
-            font-size: clamp(0.72rem, 1.7vw, 0.88rem);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            width: max-content;
+            max-width: 90vw;
+            margin: 0 auto 14px;
+            color: #adbaff;
+            font-size: clamp(0.65rem, 1.15vw, 0.78rem);
             font-weight: 850;
             letter-spacing: 0.34em;
             text-transform: uppercase;
             text-indent: 0.34em;
+            opacity: 0;
+            animation: supportai-intro-kicker 0.7s ease 0.52s forwards;
         }
 
-        .supportai-welcome-overlay h1.supportai-welcome-title {
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-            opacity: 1 !important;
-            mix-blend-mode: normal !important;
-            filter: none !important;
-            text-rendering: geometricPrecision;
+        .supportai-welcome-kicker::before,
+        .supportai-welcome-kicker::after {
+            content: "";
+            display: block;
+            width: clamp(28px, 4vw, 56px);
+            height: 1px;
+            flex: 0 0 auto;
+            background: linear-gradient(90deg, transparent, rgba(165,180,252,0.58));
+        }
+
+        .supportai-welcome-kicker::after {
+            background: linear-gradient(90deg, rgba(165,180,252,0.58), transparent);
         }
 
         .supportai-welcome-title {
             position: relative;
-            display: inline-block;
-            margin: 0;
-            font-size: clamp(4rem, 11vw, 8rem);
-            line-height: 0.92;
-            font-weight: 900;
-            letter-spacing: -0.065em;
-            color: #f8fafc;
+            display: block;
+            width: fit-content;
+            margin: 0 auto;
+            text-align: center;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            font-size: clamp(2.75rem, 4.2vw, 4.5rem);
+            line-height: 0.87;
+            font-weight: 950;
+            letter-spacing: -0.075em;
+            opacity: 0;
+            transform: translateY(20px) scale(0.985);
             text-shadow:
-                0 0 28px rgba(129,140,248,0.18),
-                0 0 70px rgba(56,189,248,0.10);
-            overflow: hidden;
+                0 0 14px rgba(255,255,255,0.12),
+                0 0 46px rgba(129,140,248,0.26),
+                0 0 94px rgba(56,189,248,0.10);
+            animation: supportai-intro-title 1.05s cubic-bezier(.18,.82,.18,1) 0.62s forwards;
+            filter: none !important;
+            mix-blend-mode: normal !important;
         }
 
         .supportai-welcome-title::before {
             content: "";
             position: absolute;
-            inset: -18% auto -18% -55%;
-            width: 34%;
-            transform: skewX(-18deg);
+            inset: -14% -4%;
             background:
                 linear-gradient(
-                    90deg,
-                    transparent 0%,
-                    rgba(255,255,255,0.02) 18%,
-                    rgba(255,255,255,0.42) 48%,
-                    rgba(191,219,254,0.95) 53%,
-                    rgba(255,255,255,0.16) 62%,
-                    transparent 100%
+                    105deg,
+                    transparent 37%,
+                    rgba(255,255,255,0.04) 43%,
+                    rgba(255,255,255,0.98) 50%,
+                    rgba(186,230,253,0.42) 54%,
+                    rgba(255,255,255,0.03) 61%,
+                    transparent 66%
                 );
-            filter: blur(1px);
-            animation: supportai-welcome-shine 2.8s cubic-bezier(.4,0,.2,1) 0.45s infinite;
+            transform: translateX(-145%);
+            mix-blend-mode: screen;
             pointer-events: none;
+            animation: supportai-intro-title-shine 2.45s cubic-bezier(.35,0,.2,1) 1.12s infinite;
         }
 
         .supportai-welcome-title::after {
@@ -3317,152 +3470,218 @@ def render_welcome_animation() -> None:
             right: 8%;
             bottom: -10px;
             height: 2px;
-            border-radius: 999px;
-            background: linear-gradient(90deg, transparent, rgba(129,140,248,0.92), rgba(56,189,248,0.92), transparent);
-            box-shadow: 0 0 24px rgba(99,102,241,0.35);
+            border-radius: 99px;
+            background:
+                linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(129,140,248,0.95),
+                    rgba(56,189,248,0.95),
+                    rgba(129,140,248,0.95),
+                    transparent
+                );
+            box-shadow: 0 0 26px rgba(99,102,241,0.40);
             transform: scaleX(0);
-            transform-origin: center;
-            animation: supportai-welcome-line 1.15s ease 0.65s forwards;
+            animation: supportai-intro-line 0.95s cubic-bezier(.2,.8,.2,1) 1.18s forwards;
         }
 
-        .supportai-welcome-subtitle {
-            margin: 24px auto 0;
-            max-width: 760px;
-            color: #cbd5e1;
-            font-size: clamp(0.95rem, 2vw, 1.15rem);
-            line-height: 1.65;
-            letter-spacing: 0.01em;
-            animation: supportai-welcome-rise 0.9s ease 0.48s both;
+        .supportai-welcome-tagline {
+            max-width: 860px;
+            margin: 36px auto 0;
+            color: #dbe5f5;
+            font-size: clamp(0.98rem, 1.85vw, 1.22rem);
+            line-height: 1.7;
+            letter-spacing: 0.004em;
+            opacity: 0;
+            transform: translateY(14px);
+            animation: supportai-intro-copy 0.85s ease 1.48s forwards;
+        }
+
+        .supportai-welcome-capabilities {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 21px;
+            opacity: 0;
+            transform: translateY(10px);
+            animation: supportai-intro-copy 0.75s ease 1.72s forwards;
+        }
+
+        .supportai-welcome-capability {
+            padding: 7px 11px;
+            border-radius: 999px;
+            color: #aebbd2;
+            background: rgba(15,23,42,0.34);
+            border: 1px solid rgba(148,163,184,0.12);
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            backdrop-filter: blur(9px);
+            -webkit-backdrop-filter: blur(9px);
         }
 
         .supportai-welcome-status {
-            margin-top: 22px;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            margin-top: 21px;
             color: #94a3b8;
-            font-size: 0.76rem;
-            font-weight: 750;
-            letter-spacing: 0.08em;
+            font-size: 0.66rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
-            animation: supportai-welcome-rise 0.9s ease 0.7s both;
+            opacity: 0;
+            animation: supportai-intro-copy 0.7s ease 1.94s forwards;
         }
 
-        .supportai-welcome-status::before {
-            content: "";
-            display: inline-block;
+        .supportai-welcome-status-dot {
             width: 7px;
             height: 7px;
-            margin: 0 9px 1px 0;
             border-radius: 50%;
             background: #34d399;
-            box-shadow: 0 0 0 5px rgba(52,211,153,0.09), 0 0 16px rgba(52,211,153,0.38);
-            animation: supportai-welcome-dot 1.35s ease-in-out infinite;
-        }
-
-        .supportai-welcome-orbit {
-            position: absolute;
-            width: min(74vw, 980px);
-            height: min(30vw, 360px);
-            min-width: 560px;
-            border: 1px solid rgba(165,180,252,0.15);
-            border-radius: 50%;
-            transform: rotate(-8deg);
-            box-shadow: 0 0 34px rgba(99,102,241,0.06);
-            animation: supportai-welcome-orbit 7s ease-in-out infinite alternate;
-        }
-
-        .supportai-welcome-orbit.two {
-            transform: rotate(18deg) scaleY(0.78);
-            border-color: rgba(56,189,248,0.11);
-            animation-delay: -2.4s;
-        }
-
-        .supportai-welcome-spark {
-            position: absolute;
-            z-index: 3;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #e0e7ff;
             box-shadow:
-                0 0 0 5px rgba(224,231,255,0.05),
-                0 0 24px rgba(129,140,248,0.68);
-            animation: supportai-welcome-spark 3.4s linear infinite;
+                0 0 0 5px rgba(52,211,153,0.07),
+                0 0 16px rgba(52,211,153,0.48);
+            animation: supportai-intro-status 1.5s ease-in-out infinite;
         }
 
-        .supportai-welcome-spark.s2 {
-            animation-delay: -1.1s;
-            transform: scale(0.72);
-            opacity: 0.72;
+        .supportai-welcome-orbit-dot {
+            position: absolute;
+            z-index: 4;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #eef2ff;
+            box-shadow:
+                0 0 0 5px rgba(224,231,255,0.04),
+                0 0 22px rgba(129,140,248,0.58);
+            animation: supportai-intro-dot 6.1s linear infinite;
         }
 
-        .supportai-welcome-spark.s3 {
-            animation-delay: -2.25s;
-            transform: scale(0.54);
-            opacity: 0.54;
+        .supportai-welcome-orbit-dot.d2 {
+            width: 6px;
+            height: 6px;
+            opacity: 0.60;
+            animation-delay: -1.8s;
         }
 
-        @keyframes supportai-welcome-rise {
-            from { opacity: 0; transform: translateY(18px) scale(0.985); }
+        .supportai-welcome-orbit-dot.d3 {
+            width: 4px;
+            height: 4px;
+            opacity: 0.42;
+            animation-delay: -3.9s;
+        }
+
+        @keyframes supportai-intro-emblem {
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        @keyframes supportai-welcome-shine {
-            0%, 12% { left: -55%; opacity: 0; }
-            18% { opacity: 1; }
-            54% { left: 116%; opacity: 1; }
-            70%, 100% { left: 116%; opacity: 0; }
+        @keyframes supportai-intro-emblem-ring {
+            0% { opacity: 0; transform: scale(0.72); }
+            65% { opacity: 1; transform: scale(1.02); }
+            100% { opacity: 0.42; transform: scale(1); }
         }
 
-        @keyframes supportai-welcome-line {
+        @keyframes supportai-intro-kicker {
+            from { opacity: 0; transform: translateY(9px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes supportai-intro-title {
+            from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(4px); }
+            to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+
+        @keyframes supportai-intro-title-shine {
+            0%, 16% { transform: translateX(-145%); opacity: 0; }
+            22% { opacity: 1; }
+            60% { transform: translateX(145%); opacity: 1; }
+            72%, 100% { transform: translateX(145%); opacity: 0; }
+        }
+
+        @keyframes supportai-intro-line {
             to { transform: scaleX(1); }
         }
 
-        @keyframes supportai-welcome-grid {
-            0%, 100% { transform: perspective(700px) rotateX(58deg) translateY(18%) translateX(0); }
-            50% { transform: perspective(700px) rotateX(58deg) translateY(14%) translateX(-18px); }
+        @keyframes supportai-intro-copy {
+            from { opacity: 0; transform: translateY(14px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        @keyframes supportai-welcome-glow {
-            from { transform: translate3d(-3%, -2%, 0) scale(0.96); opacity: 0.78; }
-            to { transform: translate3d(4%, 4%, 0) scale(1.06); opacity: 1; }
+        @keyframes supportai-intro-core {
+            0% { opacity: 0; transform: scale(0.62); }
+            70% { opacity: 1; transform: scale(1.05); }
+            100% { opacity: 0.86; transform: scale(1); }
         }
 
-        @keyframes supportai-welcome-orbit {
-            from { transform: rotate(-8deg) translateX(-10px); opacity: 0.52; }
-            to { transform: rotate(-1deg) translateX(18px); opacity: 0.86; }
+        @keyframes supportai-intro-breathe {
+            from { transform: scale(0.98); opacity: 0.70; }
+            to { transform: scale(1.06); opacity: 1; }
         }
 
-        @keyframes supportai-welcome-spark {
-            0% { top: 30%; left: 16%; }
-            35% { top: 18%; left: 78%; }
-            68% { top: 74%; left: 84%; }
-            100% { top: 30%; left: 16%; }
+        @keyframes supportai-intro-radar {
+            from { transform: scale(0.985); opacity: 0.42; }
+            to { transform: scale(1.025); opacity: 0.76; }
         }
 
-        @keyframes supportai-welcome-dot {
-            0%, 100% { transform: scale(0.86); opacity: 0.72; }
-            50% { transform: scale(1.15); opacity: 1; }
+        @keyframes supportai-intro-ring {
+            from { transform: rotate(-12deg) translateX(-10px); opacity: 0.35; }
+            to { transform: rotate(-4deg) translateX(17px); opacity: 0.78; }
         }
 
-        @keyframes supportai-welcome-exit {
-            0% { opacity: 1; visibility: visible; }
-            78% { opacity: 1; visibility: visible; }
+        @keyframes supportai-intro-grid {
+            from { transform: perspective(900px) rotateX(63deg) translate3d(0, 5px, 0); }
+            to { transform: perspective(900px) rotateX(63deg) translate3d(-28px, -4px, 0); }
+        }
+
+        @keyframes supportai-intro-dot {
+            0% { top: 19%; left: 18%; transform: scale(0.78); }
+            25% { top: 10%; left: 78%; transform: scale(1); }
+            50% { top: 76%; left: 84%; transform: scale(0.88); }
+            75% { top: 88%; left: 18%; transform: scale(1.04); }
+            100% { top: 19%; left: 18%; transform: scale(0.78); }
+        }
+
+        @keyframes supportai-intro-status {
+            0%, 100% { transform: scale(0.84); opacity: 0.72; }
+            50% { transform: scale(1.14); opacity: 1; }
+        }
+
+        @keyframes supportai-intro-sheen {
+            0%, 18% { transform: translateX(-120%); opacity: 0; }
+            30% { opacity: 1; }
+            64% { transform: translateX(120%); opacity: 1; }
+            78%, 100% { transform: translateX(120%); opacity: 0; }
+        }
+
+        @keyframes supportai-intro-exit {
+            0%, 78% { opacity: 1; visibility: visible; }
             100% { opacity: 0; visibility: hidden; pointer-events: none; }
         }
 
         @media (prefers-reduced-motion: reduce) {
             .supportai-welcome-overlay,
+            .supportai-welcome-overlay::before,
             .supportai-welcome-grid,
-            .supportai-welcome-glow,
-            .supportai-welcome-mark,
+            .supportai-welcome-radar,
+            .supportai-welcome-ring,
+            .supportai-welcome-core,
+            .supportai-welcome-emblem,
+            .supportai-welcome-emblem::before,
+            .supportai-welcome-kicker,
+            .supportai-welcome-title,
             .supportai-welcome-title::before,
             .supportai-welcome-title::after,
-            .supportai-welcome-subtitle,
+            .supportai-welcome-tagline,
+            .supportai-welcome-capabilities,
             .supportai-welcome-status,
-            .supportai-welcome-orbit,
-            .supportai-welcome-spark,
-            .supportai-welcome-status::before {
+            .supportai-welcome-status-dot,
+            .supportai-welcome-orbit-dot {
                 animation: none !important;
             }
+
             .supportai-welcome-overlay {
                 opacity: 0;
                 visibility: hidden;
@@ -3471,41 +3690,97 @@ def render_welcome_animation() -> None:
         }
 
         @media (max-width: 700px) {
-            .supportai-welcome-mark {
-                padding: 22px;
+            .supportai-welcome-content {
+                width: 96vw;
+                padding: 24px 14px 32px;
             }
-            .supportai-welcome-subtitle {
+
+            .supportai-welcome-kicker {
+                width: 92vw;
+                gap: 8px;
+            }
+
+            .supportai-welcome-emblem {
+                width: 68px;
+                height: 68px;
+                border-radius: 20px;
+                margin-bottom: 20px;
+            }
+
+            .supportai-welcome-emblem-mark {
+                font-size: 1.85rem;
+            }
+
+            .supportai-welcome-tagline {
                 max-width: 88vw;
+                font-size: 0.94rem;
             }
-            .supportai-welcome-orbit {
-                width: 112vw;
+
+            .supportai-welcome-radar {
+                width: 128vw;
+                height: 128vw;
+                min-width: 0;
+                min-height: 0;
+            }
+
+            .supportai-welcome-ring,
+            .supportai-welcome-ring.two {
+                width: 124vw;
                 min-width: 0;
             }
         }
         </style>
 
         <div class="supportai-welcome-overlay" aria-label="Welcome to SupportAI">
+            <div class="supportai-welcome-noise"></div>
             <div class="supportai-welcome-grid"></div>
-            <div class="supportai-welcome-glow"></div>
-            <div class="supportai-welcome-orbit"></div>
-            <div class="supportai-welcome-orbit two"></div>
-            <div class="supportai-welcome-spark s1"></div>
-            <div class="supportai-welcome-spark s2"></div>
-            <div class="supportai-welcome-spark s3"></div>
-            <div class="supportai-welcome-mark">
-                <div class="supportai-welcome-kicker">Welcome to</div>
-                <h1 class="supportai-welcome-title" style="color:#ffffff !important; -webkit-text-fill-color:#ffffff !important; opacity:1 !important;">SupportAI</h1>
-                <div class="supportai-welcome-subtitle">
-                    Intelligent customer support powered by trusted knowledge,
-                    operational analytics, and Snowflake-native agent orchestration.
+            <div class="supportai-welcome-radar"></div>
+            <div class="supportai-welcome-ring"></div>
+            <div class="supportai-welcome-ring two"></div>
+            <div class="supportai-welcome-core"></div>
+
+            <div class="supportai-welcome-orbit-dot d1"></div>
+            <div class="supportai-welcome-orbit-dot d2"></div>
+            <div class="supportai-welcome-orbit-dot d3"></div>
+
+            <div class="supportai-welcome-content">
+                <div class="supportai-welcome-emblem">
+                    <div class="supportai-welcome-emblem-mark">✦</div>
                 </div>
-                <div class="supportai-welcome-status">Initializing your support workspace</div>
+
+                <div class="supportai-welcome-kicker">
+                    <span>Welcome to</span>
+                </div>
+
+                <h1 class="supportai-welcome-title"
+                    style="color:#ffffff !important; -webkit-text-fill-color:#ffffff !important; opacity:1 !important;">
+                    SupportAI
+                </h1>
+
+                <div class="supportai-welcome-tagline">
+                    Intelligent customer support powered by trusted knowledge,
+                    operational analytics, and Snowflake-native intelligence.
+                </div>
+
+                <div class="supportai-welcome-capabilities">
+                    <span class="supportai-welcome-capability">Trusted Knowledge</span>
+                    <span class="supportai-welcome-capability">Support Analytics</span>
+                    <span class="supportai-welcome-capability">Agent Orchestration</span>
+                </div>
+
+                <div class="supportai-welcome-status">
+                    <span class="supportai-welcome-status-dot"></span>
+                    Preparing your support workspace
+                </div>
             </div>
         </div>
         """
-        ),
-        unsafe_allow_html=True,
     )
+
+    if callable(getattr(st, "html", None)):
+        st.html(welcome_html)
+    else:
+        st.markdown(welcome_html, unsafe_allow_html=True)
 
 
 def run_app(

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -66,9 +67,78 @@ class CortexAgentService:
             f"/agents/{self.agent_name}:run"
         )
 
+    @staticmethod
+    def _clean_agent_answer_text(answer: str) -> str:
+        """
+        Remove only obvious trailing continuation fragments from
+        the final Agent answer.
+
+        Cortex Agent can occasionally return a final standalone fragment
+        such as "What" after the substantive answer. This method removes
+        that fragment without modifying normal sentence content.
+        """
+        if not answer:
+            return ""
+
+        text = str(answer).strip()
+
+        # Remove a dangling continuation fragment at the very end.
+        # Cortex Agent can occasionally append a final partial "What"
+        # either on a new line or after the completed sentence.
+        cleaned_text = re.sub(
+            r"(?i)(?:\s*(?:<br>\s*)?)[.!,:;—–-]?\s*(?:What|Why|How|Where|When|Which|Who)[?.!…]?\s*$",
+            "",
+            text,
+        )
+
+        if cleaned_text != text:
+            logger.debug(
+                "Removed dangling Cortex Agent continuation fragment from final answer."
+            )
+
+        text = cleaned_text
+
+        # Normalize whitespace after removing a trailing fragment.
+        text = re.sub(r"\n{3,}", "\n\n", text)
+
+        return text.strip()
+
+    @staticmethod
+    def _append_unique_text(
+        answer_parts: list[str],
+        value: object,
+    ) -> None:
+        """
+        Append meaningful answer text while preserving order and avoiding
+        duplicate/standalone continuation fragments.
+        """
+        if value is None:
+            return
+
+        text = str(value).strip()
+
+        if not text:
+            return
+
+        # Cortex Agent can occasionally emit a final partial continuation
+        # as its own text block. Do not let that fragment become part of the
+        # user-facing answer.
+        if re.fullmatch(
+            r"(?:What|Why|How|Where|When|Which|Who)[?.!…]?",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            logger.debug(
+                "Ignoring standalone Cortex Agent continuation fragment: %r",
+                text,
+            )
+            return
+
+        if text not in answer_parts:
+            answer_parts.append(text)
+
     def ask(self, question: str) -> CortexAgentResponse:
         """Send a natural-language question to the Cortex Agent."""
-
         if not question or not question.strip():
             raise ValueError("Question cannot be empty.")
 
@@ -101,10 +171,8 @@ class CortexAgentService:
                 headers=headers,
                 timeout=120,
             )
-
         except requests.RequestException as exc:
             logger.exception("Cortex Agent request failed.")
-
             raise RuntimeError("Unable to connect to Snowflake Cortex Agent.") from exc
 
         request_id = response.headers.get("X-Snowflake-Request-Id")
@@ -112,7 +180,6 @@ class CortexAgentService:
         # ---------------------------------------------------------
         # HTTP ERROR
         # ---------------------------------------------------------
-
         if response.status_code >= 400:
             logger.error(
                 "Cortex Agent returned HTTP %s: %s",
@@ -141,16 +208,13 @@ class CortexAgentService:
         # ---------------------------------------------------------
         # PARSE NON-STREAMING JSON RESPONSE
         # ---------------------------------------------------------
-
         try:
             data = response.json()
-
         except ValueError as exc:
             logger.error(
                 "Cortex Agent returned invalid JSON: %s",
                 response.text[:5000],
             )
-
             raise RuntimeError(
                 "Cortex Agent returned an invalid JSON response."
             ) from exc
@@ -158,9 +222,7 @@ class CortexAgentService:
         # ---------------------------------------------------------
         # RESPONSE CONTENT
         # ---------------------------------------------------------
-
-        answer_parts = []
-
+        answer_parts: list[str] = []
         content = data.get("content", [])
 
         # ---------------------------------------------------------
@@ -174,6 +236,7 @@ class CortexAgentService:
                 value_type = str(value.get("type") or "").strip().lower()
 
                 # Standard response content item:
+                #
                 # {
                 #     "type": "tool_use",
                 #     "tool_use": {
@@ -181,6 +244,7 @@ class CortexAgentService:
                 #         "name": "PolicySearch"
                 #     }
                 # }
+
                 if value_type in {"tool_use", "tool_result"}:
                     nested = value.get(value_type)
 
@@ -205,7 +269,6 @@ class CortexAgentService:
 
                 if direct_name:
                     used_tools.append(direct_name)
-
                 elif direct_type:
                     used_tools.append(direct_type)
 
@@ -221,63 +284,62 @@ class CortexAgentService:
         # Preserve order and remove duplicates.
         used_tools = list(dict.fromkeys(used_tools))
 
+        # ---------------------------------------------------------
+        # EXTRACT TOP-LEVEL CONTENT TEXT
+        # ---------------------------------------------------------
         if isinstance(content, list):
             for content_block in content:
                 if not isinstance(content_block, dict):
                     continue
 
-                block_type = content_block.get("type")
+                block_type = str(content_block.get("type") or "").strip().lower()
 
                 if block_type == "text":
-                    text = content_block.get("text")
+                    self._append_unique_text(
+                        answer_parts,
+                        content_block.get("text"),
+                    )
 
-                    if text:
-                        answer_parts.append(str(text).strip())
-
-        # Some response formats may place content under
-        # an assistant/message object.
-
+        # ---------------------------------------------------------
+        # EXTRACT ASSISTANT / MESSAGE CONTENT
+        # ---------------------------------------------------------
         message = data.get("message")
 
         if isinstance(message, dict):
-            message_content = message.get(
-                "content",
-                [],
-            )
+            message_content = message.get("content", [])
 
             if isinstance(message_content, list):
                 for content_block in message_content:
-                    if not isinstance(
-                        content_block,
-                        dict,
-                    ):
+                    if not isinstance(content_block, dict):
                         continue
 
-                    if content_block.get("type") == "text":
-                        text = content_block.get("text")
+                    block_type = str(content_block.get("type") or "").strip().lower()
 
-                        if text:
-                            answer_parts.append(str(text).strip())
+                    if block_type == "text":
+                        self._append_unique_text(
+                            answer_parts,
+                            content_block.get("text"),
+                        )
 
             elif isinstance(message_content, str):
-                if message_content.strip():
-                    answer_parts.append(message_content.strip())
+                self._append_unique_text(
+                    answer_parts,
+                    message_content,
+                )
 
         # ---------------------------------------------------------
         # FALLBACK
         # ---------------------------------------------------------
-
         if not answer_parts:
-            text = data.get("text")
-
-            if isinstance(text, str) and text.strip():
-                answer_parts.append(text.strip())
+            self._append_unique_text(
+                answer_parts,
+                data.get("text"),
+            )
 
         # ---------------------------------------------------------
         # FINAL ANSWER
         # ---------------------------------------------------------
-
-        answer = "\n".join(part for part in answer_parts if part).strip()
+        answer = self._clean_agent_answer_text("\n".join(answer_parts))
 
         if not answer:
             logger.error(
