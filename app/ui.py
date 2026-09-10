@@ -1937,6 +1937,360 @@ def inject_box_styles(theme: str = "light") -> None:
                 border-color: rgba(245,158,11,0.22);
             }
 
+
+            /* =========================================================
+               Signature product-surface refresh
+               Keeps the existing application logic and controls intact.
+               ========================================================= */
+
+            .stApp {
+                background:
+                    radial-gradient(circle at 4% 12%, rgba(99,102,241,0.15), transparent 23%),
+                    radial-gradient(circle at 96% 10%, rgba(6,182,212,0.16), transparent 25%),
+                    radial-gradient(circle at 18% 82%, rgba(236,72,153,0.10), transparent 25%),
+                    radial-gradient(circle at 82% 74%, rgba(245,158,11,0.08), transparent 23%),
+                    linear-gradient(135deg, #f4f0ff 0%, #f8f6ff 35%, #eef8fb 68%, #fff7f3 100%) !important;
+            }
+
+            .ra-hero {
+                min-height: 0 !important;
+                padding: 18px 34px 30px !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                background:
+                    radial-gradient(circle at 88% -10%, rgba(99,102,241,0.50), transparent 31%),
+                    radial-gradient(circle at 12% 110%, rgba(236,72,153,0.20), transparent 28%),
+                    radial-gradient(circle at 72% 100%, rgba(6,182,212,0.13), transparent 30%),
+                    linear-gradient(135deg, #081426 0%, #0e1930 48%, #182452 100%) !important;
+                box-shadow:
+                    0 28px 70px rgba(15,23,42,0.20),
+                    inset 0 1px 0 rgba(255,255,255,0.07) !important;
+            }
+
+            .ra-hero::after {
+                width: 520px;
+                height: 520px;
+                right: -180px;
+                top: -240px;
+                background: radial-gradient(circle at 38% 42%, rgba(129,140,248,0.32), rgba(56,189,248,0.07) 38%, transparent 70%);
+                animation: ra-signature-orb 11s ease-in-out infinite alternate !important;
+            }
+
+            .ra-hero::before {
+                opacity: 0.55;
+                animation: ra-signature-sheen 9s cubic-bezier(.35,0,.2,1) infinite !important;
+            }
+
+            @keyframes ra-signature-orb {
+                0% { transform: translate3d(0,0,0) scale(.94); }
+                50% { transform: translate3d(-24px,18px,0) scale(1.04); }
+                100% { transform: translate3d(-8px,34px,0) scale(1.08); }
+            }
+
+            @keyframes ra-signature-sheen {
+                0%, 58% { transform: translateX(-70%) rotate(0deg); opacity: 0; }
+                68% { opacity: .8; }
+                88%, 100% { transform: translateX(70%) rotate(0deg); opacity: 0; }
+            }
+
+            .ra-hero-eyebrow,
+            .ra-hero-system {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                min-height: 32px;
+                padding: 7px 12px;
+                border-radius: 999px;
+                border: 1px solid rgba(255,255,255,0.15);
+                background: rgba(255,255,255,0.055);
+                color: #cbd5e1;
+                font-size: .68rem;
+                font-weight: 850;
+                letter-spacing: .10em;
+                text-transform: uppercase;
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+
+            .ra-hero-system {
+                border-color: rgba(129,140,248,0.18);
+                color: #aeb9d5;
+            }
+
+            .ra-hero-system b {
+                color: #818cf8;
+                font-weight: 900;
+            }
+
+            .ra-live-dot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background: #34d399;
+                box-shadow: 0 0 0 4px rgba(52,211,153,.10), 0 0 15px rgba(52,211,153,.55);
+                animation: ra-live-pulse 2.2s ease-in-out infinite;
+            }
+
+            @keyframes ra-live-pulse {
+                0%, 100% { transform: scale(.88); opacity: .75; }
+                50% { transform: scale(1.18); opacity: 1; }
+            }
+
+            .ra-brand-row {
+                gap: 18px !important;
+                align-items: center !important;
+            }
+
+            .ra-brand-copy {
+                transform: translateY(10px);
+            }
+
+            .ra-brand-icon {
+                width: 66px !important;
+                height: 66px !important;
+                border-radius: 19px !important;
+                background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(129,140,248,.11)) !important;
+                border: 1px solid rgba(255,255,255,.18) !important;
+                box-shadow: 0 14px 32px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.15);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .ra-brand-icon::after {
+                content: "";
+                position: absolute;
+                inset: -50%;
+                background: conic-gradient(from 20deg, transparent, rgba(255,255,255,.18), transparent 35%);
+                animation: ra-icon-sweep 5.5s linear infinite;
+            }
+
+            .ra-brand-icon span {
+                position: relative;
+                z-index: 2;
+                font-size: 30px;
+                filter: drop-shadow(0 4px 10px rgba(255,255,255,.20));
+            }
+
+            @keyframes ra-icon-sweep {
+                to { transform: rotate(360deg); }
+            }
+
+            .ra-brand-copy {
+                max-width: 900px;
+            }
+
+            .ra-brand-title {
+                font-size: clamp(2.15rem, 4vw, 3.25rem) !important;
+                letter-spacing: -.055em !important;
+            }
+
+            .ra-brand-subtitle {
+                max-width: 820px;
+                margin-top: 10px !important;
+                font-size: 1.02rem !important;
+                line-height: 1.62 !important;
+                color: #c7d2e5 !important;
+            }
+
+            .ra-status-strip {
+                margin-top: 18px !important;
+                gap: 10px !important;
+            }
+
+            .ra-status {
+                padding: 8px 13px !important;
+                background: rgba(255,255,255,.065) !important;
+                border-color: rgba(255,255,255,.14) !important;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 20px rgba(0,0,0,.10) !important;
+                color: #dbe5f5 !important;
+            }
+
+            .ra-product-strip {
+                grid-template-columns: repeat(3, minmax(0,1fr));
+                gap: 14px;
+                margin: 16px 0 30px !important;
+            }
+
+            .ra-product-tile {
+                min-height: 104px;
+                display: grid;
+                grid-template-columns: auto 1fr auto;
+                align-items: center;
+                gap: 13px;
+                position: relative;
+                overflow: hidden;
+                padding: 17px 18px !important;
+                border-radius: 19px !important;
+                border: 1px solid rgba(255,255,255,.72) !important;
+                background: rgba(255,255,255,.68) !important;
+                box-shadow: 0 14px 38px rgba(31,41,55,.07), inset 0 1px 0 rgba(255,255,255,.9) !important;
+                backdrop-filter: blur(18px);
+                -webkit-backdrop-filter: blur(18px);
+            }
+
+            .ra-product-tile::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(115deg, transparent 18%, rgba(255,255,255,.48) 50%, transparent 82%);
+                transform: translateX(-120%);
+                transition: transform .75s cubic-bezier(.2,.7,.2,1);
+                pointer-events: none;
+            }
+
+            .ra-product-tile:hover::before { transform: translateX(120%); }
+
+            .ra-product-tile::after {
+                width: 150px !important;
+                height: 150px !important;
+                right: -55px !important;
+                top: -75px !important;
+                opacity: .65;
+            }
+
+            .ra-product-tile-knowledge::after { background: radial-gradient(circle, rgba(99,102,241,.18), transparent 68%) !important; }
+            .ra-product-tile-operations::after { background: radial-gradient(circle, rgba(6,182,212,.17), transparent 68%) !important; }
+            .ra-product-tile-automation::after { background: radial-gradient(circle, rgba(236,72,153,.16), transparent 68%) !important; }
+
+            .ra-product-icon {
+                position: relative;
+                z-index: 2;
+                width: 42px;
+                height: 42px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 13px;
+                color: #fff;
+                font-size: 20px;
+                font-weight: 800;
+                background: linear-gradient(145deg, #4f46e5, #7c3aed);
+                box-shadow: 0 9px 20px rgba(79,70,229,.22);
+            }
+
+            .ra-product-tile-operations .ra-product-icon { background: linear-gradient(145deg, #0891b2, #2563eb); box-shadow: 0 9px 20px rgba(8,145,178,.20); }
+            .ra-product-tile-automation .ra-product-icon { background: linear-gradient(145deg, #db2777, #7c3aed); box-shadow: 0 9px 20px rgba(219,39,119,.18); }
+
+            .ra-product-copy { position: relative; z-index: 2; min-width: 0; }
+            .ra-product-kicker { margin-bottom: 4px !important; font-size: .66rem !important; }
+            .ra-product-value { font-size: .94rem !important; }
+            .ra-product-desc {
+                margin-top: 3px;
+                color: #64748b;
+                font-size: .72rem;
+                line-height: 1.35;
+            }
+
+            .ra-product-arrow {
+                position: relative;
+                z-index: 2;
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                color: #64748b;
+                background: rgba(255,255,255,.62);
+                border: 1px solid rgba(148,163,184,.18);
+                transition: transform .2s ease, color .2s ease, background .2s ease;
+            }
+
+            .ra-product-tile:hover .ra-product-arrow {
+                transform: translate(2px,-2px);
+                color: #4f46e5;
+                background: #fff;
+            }
+
+            /* Product navigation: make Streamlit's tabs read like a premium workspace switcher. */
+            .stTabs {
+                margin-top: 6px;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                position: relative;
+                gap: 4px !important;
+                padding: 5px !important;
+                border: 1px solid rgba(148,163,184,.20) !important;
+                border-radius: 16px !important;
+                background: rgba(255,255,255,.52) !important;
+                box-shadow: 0 12px 32px rgba(31,41,55,.055), inset 0 1px 0 rgba(255,255,255,.9) !important;
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                min-height: 46px !important;
+                padding: 9px 18px !important;
+                border-radius: 12px !important;
+                color: #64748b !important;
+                font-weight: 800 !important;
+                letter-spacing: -.01em;
+                transition: background .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease !important;
+            }
+
+            .stTabs [data-baseweb="tab"]:hover {
+                color: #334155 !important;
+                background: rgba(255,255,255,.68) !important;
+                transform: translateY(-1px);
+            }
+
+            .stTabs [data-baseweb="tab"][aria-selected="true"] {
+                color: #312e81 !important;
+                background: linear-gradient(135deg, rgba(238,242,255,.98), rgba(250,245,255,.98)) !important;
+                box-shadow: 0 7px 20px rgba(79,70,229,.10), inset 0 1px 0 rgba(255,255,255,.95) !important;
+            }
+
+            .stTabs [data-baseweb="tab-highlight"] {
+                display: none !important;
+            }
+
+            /* Dark-mode counterpart for the refreshed surfaces. */
+            body:has(.ra-theme-marker-dark) .stApp {
+                background:
+                    radial-gradient(circle at 5% 10%, rgba(99,102,241,.22), transparent 24%),
+                    radial-gradient(circle at 94% 12%, rgba(6,182,212,.14), transparent 24%),
+                    radial-gradient(circle at 20% 85%, rgba(236,72,153,.10), transparent 25%),
+                    linear-gradient(135deg, #050a14 0%, #0b1120 52%, #11182c 100%) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-tile,
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab-list"] {
+                background: rgba(10,17,32,.72) !important;
+                border-color: rgba(148,163,184,.16) !important;
+                box-shadow: 0 18px 42px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.035) !important;
+            }
+
+            body:has(.ra-theme-marker-dark) .ra-product-desc { color: #94a3b8 !important; }
+            body:has(.ra-theme-marker-dark) .ra-product-arrow { background: rgba(30,41,59,.72); color: #94a3b8; }
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"]:hover { color: #e2e8f0 !important; background: rgba(30,41,59,.72) !important; }
+            body:has(.ra-theme-marker-dark) .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #eef2ff !important; background: linear-gradient(135deg, rgba(79,70,229,.28), rgba(124,58,237,.20)) !important; }
+
+            @media (max-width: 900px) {
+                .ra-product-strip { grid-template-columns: 1fr !important; }
+                .ra-product-tile { min-height: 88px; }
+                .ra-hero-topline { align-items: flex-start; flex-direction: column; margin-bottom: 28px; }
+                .ra-hero-system { display: none; }
+            }
+
+            @media (max-width: 600px) {
+                .ra-hero { min-height: 0 !important; padding: 18px 18px 24px !important; }
+                .ra-brand-title { font-size: 2rem !important; }
+                .ra-brand-subtitle { font-size: .90rem !important; }
+                .ra-brand-icon { width: 54px !important; height: 54px !important; }
+                .ra-status-strip { margin-top: 18px !important; }
+                .ra-status { font-size: .68rem !important; }
+                .stTabs [data-baseweb="tab"] { padding: 8px 11px !important; font-size: .78rem !important; }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .ra-live-dot,
+                .ra-brand-icon::after,
+                .ra-hero::before,
+                .ra-hero::after { animation: none !important; }
+                .ra-product-tile::before { display: none !important; }
+            }
+
             </style>
             """
         ),
@@ -2197,15 +2551,16 @@ def render_analytics_response(
 
 def clean_agent_answer(answer: str) -> str:
     """
-    Remove unnecessary process narration from the Cortex Agent's final answer.
-    Keeps the actual policy/analytics response intact.
+    Clean the Cortex Agent response for customer-facing display.
+    Removes process narration, internal execution language,
+    and unfinished follow-up text.
     """
     if not answer:
         return ""
 
     text = str(answer).strip()
 
-    # Remove common process-narration sentences at the beginning.
+    # Remove common process narration at the beginning.
     opening_patterns = [
         r"^\s*I'll look into .*?\.\s*",
         r"^\s*I will look into .*?\.\s*",
@@ -2215,6 +2570,8 @@ def clean_agent_answer(answer: str) -> str:
         r"^\s*I have .*?\.\s*",
         r"^\s*Now I'll .*?\.\s*",
         r"^\s*Here's .*?\.\s*",
+        r"^\s*I found .*?\.\s*",
+        r"^\s*I've found .*?\.\s*",
     ]
 
     for pattern in opening_patterns:
@@ -2226,39 +2583,25 @@ def clean_agent_answer(answer: str) -> str:
             flags=re.IGNORECASE | re.DOTALL,
         )
 
-    # For combined answers, remove everything before the first meaningful heading.
-    heading_match = re.search(
-        r"(?m)^\s*(\*\*[^*\n]+\*\*|#{1,6}\s+.+?)\s*$",
-        text,
-    )
+    # Remove common internal/process statements.
+    process_patterns = [
+        r"(?im)^\s*.*?(?:tool call|tool execution|executing sql|running sql|querying the database).*?$",
+        r"(?im)^\s*.*?(?:orchestration|routing decision|server skill|system action).*?$",
+        r"(?im)^\s*.*?(?:request id|latency|response time).*?$",
+    ]
 
-    if heading_match and heading_match.start() > 0:
-        prefix = text[: heading_match.start()].strip().lower()
+    for pattern in process_patterns:
+        text = re.sub(pattern, "", text)
 
-        process_words = (
-            "look into",
-            "let me",
-            "i have",
-            "now i'll",
-            "here's",
-            "pull the",
-            "query the",
-            "full picture",
-        )
-
-        if any(word in prefix for word in process_words):
-            text = text[heading_match.start() :].strip()
-
-    # Remove a stray one-word continuation sometimes returned at the end
-    # by the Cortex Agent (for example, a dangling "What").
+    # Remove dangling one-word continuations.
     text = re.sub(
-        r"(?m)\n\s*(?:What)\s*$",
+        r"(?m)\n\s*(?:What|How|Why|Would you like|Anything else)\s*$",
         "",
         text,
         flags=re.IGNORECASE,
     )
 
-    # Remove timeout / continuation text if it appears at the end.
+    # Remove timeout / incomplete continuation text.
     text = re.sub(
         r"\s*I've reached the time limit for this request\..*?$",
         "",
@@ -2273,12 +2616,16 @@ def clean_agent_answer(answer: str) -> str:
         flags=re.IGNORECASE | re.DOTALL,
     )
 
+    # Remove unwanted follow-up questions at the end.
     text = re.sub(
         r"\s*Would you like (?:me|to) .*?$",
         "",
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
+
+    # Normalize excessive blank lines.
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
@@ -2345,31 +2692,29 @@ def render_agent_response(
         unsafe_allow_html=True,
     )
 
-    with st.expander("Agent activity ", expanded=False):
+    with st.expander("Agent activity", expanded=False):
         used_tools = getattr(response, "used_tools", None) or []
 
-        if used_tools:
-            for tool in used_tools:
-                normalized = str(tool).strip().lower()
+        displayed_tools = set()
 
-                if (
-                    "policysearch" in normalized
-                    or "cortex_search" in normalized
-                    or "search" in normalized
-                ):
-                    st.write("✓ PolicySearch — Cortex Search")
+        for tool in used_tools:
+            normalized = str(tool).strip().lower()
 
-                elif (
-                    "supportanalytics" in normalized
-                    or "cortex_analyst" in normalized
-                    or "analyst" in normalized
-                ):
-                    st.write("✓ SupportAnalytics — Cortex Analyst")
+            if "policysearch" in normalized or "cortex_search" in normalized:
+                displayed_tools.add("PolicySearch — Cortex Search")
 
-                else:
-                    st.write(f"✓ {tool}")
+            elif "supportanalytics" in normalized or "cortex_analyst" in normalized:
+                displayed_tools.add("SupportAnalytics — Cortex Analyst")
+
+        if displayed_tools:
+            for tool_name in (
+                "PolicySearch — Cortex Search",
+                "SupportAnalytics — Cortex Analyst",
+            ):
+                if tool_name in displayed_tools:
+                    st.write(f"✓ {tool_name}")
         else:
-            st.caption("No tool activity was reported by the Cortex Agent.")
+            st.caption("No customer-facing tool activity was reported.")
 
     if response.request_id:
         st.caption(f"Request ID: {response.request_id}")
@@ -3842,16 +4187,17 @@ def run_app(
     st.markdown(
         """
     <div class="ra-hero">
-        <div class="ra-brand-row">
-            <div class="ra-brand-icon">✦</div>
-            <div>
-                <div class="ra-brand-title">SupportAI</div>
-                <div class="ra-brand-subtitle">
-                    An intelligent customer-support workspace for trusted policy answers,
-                    support analytics, and agent-powered resolution.
-                </div>
+
+    <div class="ra-brand-row">
+        <div class="ra-brand-icon"><span>✦</span></div>
+        <div class="ra-brand-copy">
+            <div class="ra-brand-title">SupportAI</div>
+            <div class="ra-brand-subtitle">
+                An intelligent customer-support workspace for trusted policy answers,
+                support analytics, and agent-powered resolution.
             </div>
         </div>
+    </div>
 
     <div class="ra-status-strip">
         <span class="ra-status"><span class="ra-status-dot"></span> Production-ready workspace</span>
@@ -3861,17 +4207,32 @@ def run_app(
     </div>
 
     <div class="ra-product-strip">
-        <div class="ra-product-tile">
-            <div class="ra-product-kicker">Knowledge</div>
-            <div class="ra-product-value">Policy-grounded responses</div>
+        <div class="ra-product-tile ra-product-tile-knowledge">
+            <div class="ra-product-icon">⌁</div>
+            <div class="ra-product-copy">
+                <div class="ra-product-kicker">Knowledge</div>
+                <div class="ra-product-value">Policy-grounded responses</div>
+                <div class="ra-product-desc">Trusted answers backed by retrieved evidence.</div>
+            </div>
+            <span class="ra-product-arrow">↗</span>
         </div>
-        <div class="ra-product-tile">
-            <div class="ra-product-kicker">Operations</div>
-            <div class="ra-product-value">Live support-ticket insights</div>
+        <div class="ra-product-tile ra-product-tile-operations">
+            <div class="ra-product-icon">◫</div>
+            <div class="ra-product-copy">
+                <div class="ra-product-kicker">Operations</div>
+                <div class="ra-product-value">Live support-ticket insights</div>
+                <div class="ra-product-desc">Natural-language analytics over support data.</div>
+            </div>
+            <span class="ra-product-arrow">↗</span>
         </div>
-        <div class="ra-product-tile">
-            <div class="ra-product-kicker">Automation</div>
-            <div class="ra-product-value">Cortex Agent orchestration</div>
+        <div class="ra-product-tile ra-product-tile-automation">
+            <div class="ra-product-icon">✧</div>
+            <div class="ra-product-copy">
+                <div class="ra-product-kicker">Automation</div>
+                <div class="ra-product-value">Cortex Agent orchestration</div>
+                <div class="ra-product-desc">Intelligent routing across trusted tools.</div>
+            </div>
+            <span class="ra-product-arrow">↗</span>
         </div>
     </div>
     """,
