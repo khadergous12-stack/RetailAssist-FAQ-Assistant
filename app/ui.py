@@ -8,6 +8,9 @@ import time
 import streamlit as st
 
 from app.controller import RetailAssistController
+from services.auth_service import AuthService
+from services.admin_service import AdminService
+from services.activity_service import ActivityService
 from rag.service import RAGResponse
 from services.cortex_analyst import CortexAnalystResponse
 from services.cortex_agent import CortexAgentResponse
@@ -1667,18 +1670,48 @@ def inject_box_styles(theme: str = "light") -> None:
                 color: #e5e7eb !important;
             }
 
-            body:has(.ra-theme-marker-dark) div[data-baseweb="popover"],
-            body:has(.ra-theme-marker-dark) div[data-baseweb="menu"] {
-                background: #0f172a !important;
-                border: 1px solid #334155 !important;
+            body:has(.ra-theme-marker-dark) div[data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
+            body:has(.ra-theme-marker-dark) div[data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
+                background: transparent !important;
+                color: #f8fafc !important;
             }
 
-            body:has(.ra-theme-marker-dark) [role="option"] {
+            /* Dark dropdowns / BaseWeb popovers.
+               Streamlit renders these menus in a portal, so target the menu,
+               listbox and option nodes directly rather than relying on the
+               selectbox container alone. */
+            body:has(.ra-theme-marker-dark) div[data-baseweb="popover"],
+            body:has(.ra-theme-marker-dark) div[data-baseweb="popover"] > div,
+            body:has(.ra-theme-marker-dark) div[data-baseweb="menu"],
+            body:has(.ra-theme-marker-dark) div[data-baseweb="menu"] > div,
+            body:has(.ra-theme-marker-dark) [role="listbox"] {
+                background: #0f172a !important;
+                background-color: #0f172a !important;
+                border-color: #334155 !important;
                 color: #e5e7eb !important;
             }
 
-            body:has(.ra-theme-marker-dark) [role="option"]:hover {
+            body:has(.ra-theme-marker-dark) [role="option"],
+            body:has(.ra-theme-marker-dark) [data-baseweb="option"],
+            body:has(.ra-theme-marker-dark) [role="option"] > div,
+            body:has(.ra-theme-marker-dark) [data-baseweb="option"] > div {
+                background: transparent !important;
+                background-color: transparent !important;
+                color: #e5e7eb !important;
+            }
+
+            body:has(.ra-theme-marker-dark) [role="option"]:hover,
+            body:has(.ra-theme-marker-dark) [data-baseweb="option"]:hover,
+            body:has(.ra-theme-marker-dark) [aria-selected="true"][role="option"] {
                 background: #1e293b !important;
+                background-color: #1e293b !important;
+                color: #f8fafc !important;
+            }
+
+            body:has(.ra-theme-marker-dark) [data-baseweb="popover"] input,
+            body:has(.ra-theme-marker-dark) [data-baseweb="menu"] input {
+                background: #0f172a !important;
+                color: #e5e7eb !important;
             }
 
             body:has(.ra-theme-marker-dark) div[data-testid="stFileUploader"] section {
@@ -2790,18 +2823,153 @@ def _render_document_management_impl(controller: RetailAssistController) -> None
     if store is None:
         return
 
+    # ---------------------------------------------------------
+    # Admin-only document upload
+    # ---------------------------------------------------------
+
     st.markdown(
         """
-        <div class="ra-section-label">Knowledge base management</div>
-        <div class="ra-section-title">Document management</div>
+        <div class="ra-section-label">Knowledge base</div>
+        <div class="ra-section-title">Upload a support document</div>
         <div class="ra-helper">
-            Review uploaded documents, inspect metadata, retry failed processing,
-            re-index documents, or deactivate documents that should no longer
-            be used as retrieval evidence.
+            Add PDF, DOCX, Markdown, or TXT documents to the SupportAI knowledge base.
+            Knowledge-base changes are managed by administrators.
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    with st.container(border=True):
+        uploaded_files = st.file_uploader(
+            "Choose documents",
+            type=["pdf", "docx", "md", "txt"],
+            accept_multiple_files=True,
+            help="Maximum 5 files, 20 MB per file.",
+            key="supportai_admin_document_uploader",
+        )
+
+        if uploaded_files:
+            valid_files, upload_errors = validate_uploaded_files(uploaded_files)
+
+            for error in upload_errors:
+                logger.warning("Admin upload validation error: %s", error)
+                st.error(error)
+
+            if valid_files:
+                detected_categories = {}
+
+                for uploaded_file in valid_files:
+                    file_bytes = uploaded_file.getvalue()
+                    try:
+                        detected_category = detect_category_cached(
+                            controller,
+                            file_bytes,
+                            uploaded_file.name,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Admin upload category detection failed | filename=%s",
+                            uploaded_file.name,
+                        )
+                        detected_category = "Unable to detect"
+
+                    detected_categories[uploaded_file.name] = detected_category
+                    file_size_mb = len(file_bytes) / (1024 * 1024)
+                    st.caption(
+                        f"{uploaded_file.name} • {file_size_mb:.2f} MB • "
+                        f"Category: {detected_category}"
+                    )
+
+                if st.button(
+                    "Upload to Snowflake",
+                    type="primary",
+                    width="stretch",
+                    key="supportai_admin_upload_documents",
+                ):
+                    if controller.document_store is None:
+                        logger.error(
+                            "Admin document upload requested but document store is unavailable."
+                        )
+                        st.error(
+                            "Document upload is currently unavailable. "
+                            "Please check the Snowflake configuration."
+                        )
+                    else:
+                        successful_uploads = 0
+                        uploaded_document_ids = []
+
+                        for uploaded_file in valid_files:
+                            file_bytes = uploaded_file.getvalue()
+                            upload_start = time.perf_counter()
+                            progress_bar = st.progress(0)
+                            progress_status = st.empty()
+
+                            def upload_progress(percent, stage, detail=""):
+                                progress_bar.progress(max(0, min(100, int(percent))))
+                                message = str(stage)
+                                if detail:
+                                    message += f" • {detail}"
+                                progress_status.caption(message)
+
+                            try:
+                                upload_progress(
+                                    1,
+                                    "Starting upload",
+                                    uploaded_file.name,
+                                )
+                                staged_path = controller.document_store.upload_to_stage(
+                                    file_bytes=file_bytes,
+                                    filename=uploaded_file.name,
+                                    document_id=None,
+                                    category=detected_categories.get(
+                                        uploaded_file.name
+                                    ),
+                                    progress_callback=upload_progress,
+                                )
+                                upload_progress(100, "Indexed and ready")
+
+                                stage_parts = str(staged_path).split("/", 2)
+                                document_id = (
+                                    stage_parts[1]
+                                    if len(stage_parts) >= 2
+                                    else "Unknown"
+                                )
+                                if document_id != "Unknown":
+                                    uploaded_document_ids.append(document_id)
+
+                                successful_uploads += 1
+                                logger.info(
+                                    "Admin document upload completed | filename=%s | duration=%.3fs",
+                                    uploaded_file.name,
+                                    time.perf_counter() - upload_start,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Admin document upload failed | filename=%s | duration=%.3fs",
+                                    uploaded_file.name,
+                                    time.perf_counter() - upload_start,
+                                )
+                                st.error(
+                                    f"Unable to upload {uploaded_file.name}. "
+                                    "Please retry or check the document configuration."
+                                )
+                            finally:
+                                progress_bar.empty()
+                                progress_status.empty()
+
+                        if successful_uploads:
+                            st.session_state["supportai_pending_document_ids"] = sorted(
+                                set(uploaded_document_ids)
+                            )
+                            st.success(
+                                f"{successful_uploads} document(s) uploaded successfully "
+                                "and added to the knowledge base."
+                            )
+                            _log_supportai_activity(
+                                controller,
+                                st.session_state.get("supportai_user"),
+                                "DOCUMENT_UPLOAD",
+                            )
 
     with st.container(border=True):
         col1, col2, col3 = st.columns(3)
@@ -3096,7 +3264,7 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
         unsafe_allow_html=True,
     )
 
-    with st.container():
+    with st.container(border=True):
         mode = st.selectbox(
             "Assistant Mode",
             [
@@ -3170,180 +3338,6 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
                 provider_name,
             )
             st.error(f"Unable to select {provider}: {exc}")
-
-    # -----------------------------------------------------
-    # Knowledge base document upload
-    # -----------------------------------------------------
-
-    st.markdown(
-        """
-        <div class="ra-section-label">Knowledge base</div>
-        <div class="ra-section-title">Upload documents</div>
-        <div class="ra-helper">
-            Upload PDF, DOCX, Markdown, or TXT files to add
-            new knowledge to the customer-support system.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    with st.container(border=True):
-        uploaded_files = st.file_uploader(
-            "Choose documents",
-            type=["pdf", "docx", "md", "txt"],
-            accept_multiple_files=True,
-            help="Maximum 5 files, 20 MB per file.",
-        )
-
-        if uploaded_files:
-            valid_files, upload_errors = validate_uploaded_files(uploaded_files)
-
-            for error in upload_errors:
-                logger.warning("Upload validation error: %s", error)
-                st.error(error)
-
-            if valid_files:
-                st.markdown("**Selected documents**")
-                detected_categories = {}
-
-                for uploaded_file in valid_files:
-                    file_bytes = uploaded_file.getvalue()
-
-                    file_size_mb = len(file_bytes) / (1024 * 1024)
-
-                    detected_category = "Detecting..."
-
-                    if controller.document_store is not None:
-                        detected_category = detect_category_cached(
-                            controller,
-                            file_bytes,
-                            uploaded_file.name,
-                        )
-
-                    detected_categories[uploaded_file.name] = detected_category
-
-                    st.write(
-                        f"📄 **{uploaded_file.name}** "
-                        f"• {file_size_mb:.2f} MB "
-                        f"• **Category: {detected_category}**"
-                    )
-
-                    st.caption("Document ID will be assigned during upload.")
-
-                if st.button(
-                    "⬆️ Upload to Snowflake",
-                    type="primary",
-                    width="stretch",
-                    key="main_upload_to_snowflake",
-                ):
-                    logger.info(
-                        "Document upload action triggered | files=%s",
-                        len(valid_files),
-                    )
-
-                    if controller.document_store is None:
-                        logger.error(
-                            "Document upload requested but document store is unavailable."
-                        )
-                        st.error("Document upload requires Snowflake mode.")
-
-                    else:
-                        successful_uploads = 0
-                        uploaded_document_ids = []
-
-                        for uploaded_file in valid_files:
-                            file_bytes = uploaded_file.getvalue()
-
-                            try:
-                                upload_start = time.perf_counter()
-                                logger.info(
-                                    "Document upload started | filename=%s | size_bytes=%s",
-                                    uploaded_file.name,
-                                    len(file_bytes),
-                                )
-
-                                progress_bar = st.progress(0)
-                                progress_status = st.empty()
-
-                                def upload_progress(percent, stage, detail=""):
-                                    progress_bar.progress(
-                                        max(0, min(100, int(percent)))
-                                    )
-                                    message = f"{stage}"
-                                    if detail:
-                                        message += f" • {detail}"
-                                    progress_status.caption(message)
-
-                                upload_progress(
-                                    1, "Starting upload", uploaded_file.name
-                                )
-                                staged_path = controller.document_store.upload_to_stage(
-                                    file_bytes=file_bytes,
-                                    filename=uploaded_file.name,
-                                    document_id=None,
-                                    category=detected_categories.get(
-                                        uploaded_file.name
-                                    ),
-                                    progress_callback=upload_progress,
-                                )
-                                progress_bar.progress(100)
-                                progress_status.caption("Indexed and ready")
-
-                                # DocumentStore owns the canonical ID.
-                                # Returned path:
-                                # @STAGE/<document_id>/<filename>
-
-                                stage_parts = staged_path.split(
-                                    "/",
-                                    2,
-                                )
-
-                                document_id = (
-                                    stage_parts[1]
-                                    if len(stage_parts) >= 2
-                                    else "Unknown"
-                                )
-
-                                if document_id != "Unknown":
-                                    uploaded_document_ids.append(document_id)
-
-                                st.success(
-                                    f"{uploaded_file.name} uploaded successfully."
-                                )
-
-                                st.caption(f"Document ID: {document_id}")
-
-                                st.caption(f"Stage: {staged_path}")
-
-                                successful_uploads += 1
-
-                                logger.info(
-                                    "Document upload completed | filename=%s | duration=%.3fs",
-                                    uploaded_file.name,
-                                    time.perf_counter() - upload_start,
-                                )
-
-                            except Exception as exc:
-                                logger.exception(
-                                    "Document upload failed | filename=%s | duration=%.3fs",
-                                    uploaded_file.name,
-                                    time.perf_counter() - upload_start,
-                                )
-                                st.error(
-                                    f"Failed to upload {uploaded_file.name}: {exc}"
-                                )
-
-                        if successful_uploads:
-                            st.session_state["supportai_pending_document_ids"] = sorted(
-                                set(uploaded_document_ids)
-                            )
-                            logger.info(
-                                "Pending retrieval scope set to newly uploaded documents | document_count=%s",
-                                len(uploaded_document_ids),
-                            )
-                            st.info(
-                                f"{successful_uploads} document(s) uploaded to Snowflake."
-                            )
 
     # -----------------------------------------------------
     # FAQ / customer support
@@ -3430,20 +3424,7 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
             len(question.strip()),
         )
 
-        rag_service = getattr(controller, "rag_service", None)
-        retriever = getattr(rag_service, "retriever", None) if rag_service else None
-        set_scope = getattr(retriever, "set_document_scope", None)
-        retrieval_document_ids = st.session_state.get(
-            "supportai_pending_document_ids",
-            [],
-        )
-
         try:
-            # Uploaded-document scoping is part of the existing Policy RAG flow.
-            # Analytics and Agent modes do not use the RAG retriever directly.
-            if mode == "Policy RAG" and callable(set_scope):
-                set_scope(retrieval_document_ids or None)
-
             request_status = st.empty()
 
             if mode == "Policy RAG":
@@ -3473,6 +3454,13 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
                     len(response.evidence or []),
                 )
                 render_response(response, question, provider, elapsed)
+                _log_supportai_activity(
+                    controller,
+                    st.session_state.get("supportai_user"),
+                    "QUERY",
+                    mode="Policy RAG",
+                    latency_seconds=elapsed,
+                )
 
             elif mode == "Support Analytics":
                 response = controller.ask_analytics(question.strip())
@@ -3484,6 +3472,13 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
                     bool(response.sql),
                 )
                 render_analytics_response(response, question, elapsed)
+                _log_supportai_activity(
+                    controller,
+                    st.session_state.get("supportai_user"),
+                    "QUERY",
+                    mode="Support Analytics",
+                    latency_seconds=elapsed,
+                )
 
             else:
                 response = controller.ask_agent(question.strip())
@@ -3494,6 +3489,13 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
                     elapsed,
                 )
                 render_agent_response(response, elapsed)
+                _log_supportai_activity(
+                    controller,
+                    st.session_state.get("supportai_user"),
+                    "QUERY",
+                    mode="Cortex Agent",
+                    latency_seconds=elapsed,
+                )
 
         except ValueError as exc:
             logger.warning(
@@ -3523,14 +3525,8 @@ def _render_support_ai_impl(controller: RetailAssistController) -> None:
             )
 
         finally:
-            # Consume the one-question upload preference regardless of whether
-            # the request succeeded. The document itself remains in Snowflake
-            # and is searchable normally on future Policy RAG questions.
-            st.session_state.pop("supportai_pending_document_ids", None)
-            if callable(set_scope):
-                set_scope(None)
             logger.info(
-                "Question-scoped retrieval preference cleared; complete knowledge base is active."
+                "SupportAI question processing finished; complete knowledge base remains active."
             )
 
 
@@ -4122,10 +4118,1657 @@ def render_welcome_animation() -> None:
         """
     )
 
+    # Render the animation as real HTML. Using st.markdown here can expose
+    # nested div markup as literal text in Streamlit's Markdown renderer.
     if callable(getattr(st, "html", None)):
         st.html(welcome_html)
     else:
         st.markdown(welcome_html, unsafe_allow_html=True)
+
+
+# ============================================================
+# Authentication UI
+# ============================================================
+
+
+def initialize_auth_state() -> None:
+    """Initialize authentication state for the current Streamlit session."""
+    defaults = {
+        "supportai_authenticated": False,
+        "supportai_user": None,
+        "supportai_auth_screen": "login",
+        "supportai_auth_notice": None,
+        "supportai_auth_reset_notice": None,
+        "supportai_welcome_shown": False,
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+def inject_auth_styles(theme: str = "light") -> None:
+    """Style the authentication experience as a fixed, viewport-fitted page."""
+    dark = str(theme).strip().lower() == "dark"
+    text = "#f8fafc" if dark else "#101828"
+    muted = "#aeb8ca" if dark else "#667085"
+    card = "rgba(13,20,38,.96)" if dark else "rgba(255,255,255,.96)"
+    field = "rgba(255,255,255,.075)" if dark else "#f6f8fc"
+    border = "rgba(148,163,184,.24)" if dark else "#dce2ec"
+
+    st.markdown(
+        f"""
+    <style>
+    /* AUTH PAGE — fixed to the viewport on desktop. */
+    html:has(.supportai-auth-root),
+    body:has(.supportai-auth-root),
+    body:has(.supportai-auth-root) .stApp,
+    body:has(.supportai-auth-root) [data-testid="stAppViewContainer"],
+    body:has(.supportai-auth-root) [data-testid="stMain"] {{
+        overflow: hidden !important;
+        scrollbar-width: none !important;
+        height:100% !important;
+    }}
+    body:has(.supportai-auth-root) ::-webkit-scrollbar {{
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }}
+    body:has(.supportai-auth-root) section.main > div.block-container {{
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+
+    .st-key-supportai_auth_root {{
+        width: min(1280px, calc(100vw - 56px)) !important;
+        height: calc(100vh - 34px) !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin: 0 auto !important;
+        padding: 14px 0 10px !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+    }}
+    .supportai-auth-brandline {{
+        flex: 0 0 auto;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        margin:0 0 10px;
+        padding:0 4px;
+        justify-content:flex-start;
+    }}
+    .supportai-auth-brand {{
+        display:flex; align-items:center; gap:10px;
+        color:{text}; font-weight:850; font-size:1rem;
+    }}
+    .supportai-auth-brand-mark {{
+        width:36px; height:36px; border-radius:12px;
+        display:grid; place-items:center; color:#fff;
+        background:linear-gradient(135deg,#4f46e5,#9333ea);
+        box-shadow:0 10px 24px rgba(79,70,229,.25);
+    }}
+    .supportai-auth-security {{ display:none !important; }}
+
+    .st-key-supportai_auth_root > div[data-testid="stHorizontalBlock"] {{
+        flex:1 1 auto !important;
+        min-height:0 !important;
+        height:calc(100% - 52px) !important;
+        align-items:stretch !important;
+    }}
+    .st-key-supportai_auth_root > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+        min-height:0 !important;
+        height:100% !important;
+    }}
+
+    .supportai-auth-promo {{
+        height:100%; min-height:0; box-sizing:border-box;
+        padding:30px 34px 26px;
+        position:relative; overflow:hidden; color:#fff;
+        border-radius:28px;
+        background:
+            radial-gradient(circle at 96% 4%,rgba(99,102,241,.72),transparent 31%),
+            radial-gradient(circle at 2% 100%,rgba(217,70,239,.30),transparent 32%),
+            linear-gradient(145deg,#080e1e,#121c3d 57%,#293b91);
+        box-shadow:0 28px 70px rgba(15,23,42,.18);
+    }}
+    .supportai-auth-promo:before {{
+        content:""; position:absolute; width:330px; height:330px;
+        right:-155px; top:-150px; border:1px solid rgba(255,255,255,.13);
+        border-radius:50%;
+        box-shadow:0 0 0 52px rgba(255,255,255,.025),0 0 0 104px rgba(255,255,255,.015);
+    }}
+    .supportai-auth-promo:after {{
+        content:""; position:absolute; width:220px; height:220px;
+        left:-125px; bottom:-135px; border-radius:50%;
+        background:rgba(217,70,239,.14); filter:blur(10px);
+    }}
+    .supportai-auth-promo-content {{ position:relative; z-index:2; }}
+    .supportai-auth-promo-mark {{
+        width:52px; height:52px; border-radius:17px;
+        display:grid; place-items:center; font-size:1.4rem;
+        background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.20);
+        box-shadow:inset 0 1px rgba(255,255,255,.15);
+    }}
+    .supportai-auth-promo-title {{
+        margin-top:18px; font-size:clamp(1.85rem,2.9vw,2.75rem);
+        line-height:1.02; font-weight:900; letter-spacing:-.055em;
+    }}
+    .supportai-auth-promo-copy {{
+        max-width:500px; margin-top:12px; color:rgba(255,255,255,.70);
+        font-size:.91rem; line-height:1.6;
+    }}
+    .supportai-auth-features {{ display:grid; gap:10px; margin-top:26px; }}
+    .supportai-auth-feature {{
+        display:flex; align-items:center; gap:12px; padding:12px 14px;
+        border:1px solid rgba(255,255,255,.12); border-radius:14px;
+        background:rgba(255,255,255,.055);
+        box-shadow:inset 0 1px rgba(255,255,255,.04);
+    }}
+    .supportai-auth-feature-icon {{
+        width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center;
+        border-radius:10px; background:rgba(255,255,255,.10);
+    }}
+    .supportai-auth-feature-title {{ font-size:.78rem; font-weight:800; }}
+    .supportai-auth-feature-copy {{ margin-top:2px; color:rgba(255,255,255,.52); font-size:.64rem; }}
+    .supportai-auth-promo-footer {{
+        position:absolute; left:42px; bottom:22px; z-index:2;
+        color:rgba(255,255,255,.40); font-size:.60rem; letter-spacing:.07em;
+    }}
+
+    .st-key-supportai_auth_form_wrap {{
+        height:100% !important; min-height:0 !important;
+        padding:26px 32px !important; box-sizing:border-box !important;
+        display:flex !important; flex-direction:column !important; justify-content:center !important;
+        border:1px solid {border} !important; border-radius:28px !important;
+        background:{card} !important;
+        box-shadow:0 28px 70px rgba(15,23,42,.10) !important;
+        backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+        overflow:hidden !important;
+    }}
+    .supportai-auth-form-title {{
+        color:{text}; font-size:clamp(1.65rem,2.2vw,2.2rem);
+        line-height:1.08; font-weight:900; letter-spacing:-.045em;
+    }}
+    .supportai-auth-form-copy {{
+        margin:7px 0 18px; color:{muted}; font-size:.76rem; line-height:1.45;
+    }}
+    .supportai-auth-admin-link {{ color:{muted}; font-size:.64rem; }}
+    .st-key-supportai_auth_admin_button button {{
+        min-height:36px !important; height:36px !important; border-radius:11px !important;
+        padding:0 12px !important; font-size:.66rem !important; font-weight:800 !important;
+        border:1px solid {border} !important; background:rgba(255,255,255,.42) !important;
+        box-shadow:0 8px 18px rgba(15,23,42,.06), inset 0 1px rgba(255,255,255,.9) !important;
+        backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    }}
+    .st-key-supportai_auth_admin_button button:hover {{
+        transform:translateY(-1px); border-color:rgba(99,102,241,.28) !important;
+        background:rgba(255,255,255,.7) !important;
+    }}
+    .supportai-auth-admin-badge {{
+        display:inline-flex; padding:6px 10px; border:1px solid {border};
+        border-radius:999px; color:{muted}; font-size:.62rem; font-weight:750; margin-bottom:13px;
+    }}
+    .supportai-auth-footer {{ margin-top:10px; color:{muted}; text-align:center; font-size:.58rem; }}
+    [data-testid="stForm"] {{ border:0 !important; padding:0 !important; background:transparent !important; }}
+    .st-key-supportai_auth_form_wrap [data-testid="stTextInput"] label {{
+        color:{text} !important; font-size:.70rem !important; font-weight:700 !important;
+    }}
+    .st-key-supportai_auth_form_wrap [data-testid="stTextInput"] input {{
+        min-height:42px !important; height:42px !important; border-radius:11px !important;
+        background:{field} !important; border:1px solid {border} !important;
+    }}
+    .st-key-supportai_auth_form_wrap button[kind="primaryFormSubmit"] {{
+        min-height:42px !important; border-radius:11px !important; font-weight:800 !important;
+    }}
+    .st-key-supportai_auth_form_wrap [data-baseweb="tab-list"] {{
+        gap:26px; border-bottom:1px solid {border}; margin-bottom:18px;
+    }}
+    .st-key-supportai_auth_form_wrap [data-baseweb="tab"] {{ padding:8px 0 11px; font-size:.78rem; }}
+
+    @media(max-height:760px) and (min-width:721px) {{
+        .st-key-supportai_auth_root {{ padding-top:8px !important; padding-bottom:4px !important; }}
+        .supportai-auth-brandline {{ margin-bottom:6px; }}
+        .supportai-auth-promo {{ padding:26px 30px 22px; }}
+        .supportai-auth-promo-title {{ font-size:2.15rem; }}
+        .supportai-auth-promo-copy {{ font-size:.82rem; margin-top:10px; }}
+        .supportai-auth-features {{ margin-top:16px; gap:7px; }}
+        .supportai-auth-feature {{ padding:9px 11px; }}
+        .supportai-auth-promo-footer {{ bottom:14px; }}
+        .st-key-supportai_auth_form_wrap {{ padding:22px 28px !important; }}
+        .supportai-auth-form-copy {{ margin:5px 0 12px; }}
+        .st-key-supportai_auth_form_wrap [data-testid="stTextInput"] input {{ min-height:40px !important; height:40px !important; }}
+        .st-key-supportai_auth_form_wrap button[kind="primaryFormSubmit"] {{ min-height:40px !important; }}
+    }}
+    @media(max-width:950px) {{
+        .st-key-supportai_auth_root {{ width:calc(100vw - 36px) !important; min-height:590px !important; padding-top:16px !important; }}
+        .supportai-auth-promo {{ padding:30px; }}
+        .st-key-supportai_auth_form_wrap {{ padding:30px !important; }}
+        .supportai-auth-promo-title {{ font-size:2rem; }}
+        .supportai-auth-feature {{ padding:9px 11px; }}
+    }}
+    @media(max-width:720px) {{
+        html:has(.supportai-auth-root), body:has(.supportai-auth-root) {{ overflow:auto !important; }}
+        body:has(.supportai-auth-root) section.main > div.block-container {{ padding:0 !important; }}
+        .st-key-supportai_auth_root {{ width:calc(100vw - 20px) !important; height:auto !important; min-height:0 !important; max-height:none !important; padding:12px 0 14px !important; overflow:visible !important; }}
+        .st-key-supportai_auth_root > div[data-testid="stHorizontalBlock"] {{ height:auto !important; display:block !important; }}
+        .st-key-supportai_auth_root > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{ height:auto !important; }}
+        .supportai-auth-promo {{ display:none; }}
+        .supportai-auth-security {{ display:none; }}
+        .st-key-supportai_auth_form_wrap {{ min-height:520px !important; height:auto !important; padding:28px 24px !important; }}
+    }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def _auth_service(controller: RetailAssistController) -> AuthService:
+    """Reuse the controller's Snowflake session when available."""
+    return AuthService(session=getattr(controller, "session", None))
+
+
+def _safe_auth_close(auth: AuthService) -> None:
+    """Close an auth service safely."""
+    try:
+        auth.close()
+    except Exception:
+        logger.exception("Authentication service cleanup failed.")
+
+
+def _log_supportai_activity(
+    controller: RetailAssistController,
+    user: dict | None,
+    activity_type: str,
+    mode: str | None = None,
+    status: str = "SUCCESS",
+    latency_seconds: float | None = None,
+) -> None:
+    """Best-effort activity logging; activity tracking must never break the app."""
+    user = user or {}
+    user_id = str(user.get("user_id") or "").strip()
+    if not user_id:
+        return
+
+    activity_service = None
+    try:
+        activity_service = ActivityService(session=getattr(controller, "session", None))
+        activity_service.log_activity(
+            user_id=user_id,
+            activity_type=activity_type,
+            mode=mode,
+            status=status,
+            latency_seconds=latency_seconds,
+        )
+    except Exception:
+        logger.exception("SupportAI activity logging failed | type=%s", activity_type)
+    finally:
+        if activity_service is not None:
+            activity_service.close()
+
+
+def _complete_login(
+    user: dict,
+    expected_role: str,
+    controller: RetailAssistController | None = None,
+) -> bool:
+    """Validate the database role and establish authenticated session state."""
+    actual_role = str(user.get("role") or "").strip().upper()
+    expected_role = expected_role.upper()
+
+    if actual_role != expected_role:
+        if actual_role == "ADMIN":
+            st.error("This is an admin account. Please use the Admin Portal.")
+        else:
+            st.error("This is a user account. Please use User Sign In.")
+        return False
+
+    st.session_state["supportai_authenticated"] = True
+    st.session_state["supportai_user"] = user
+    st.session_state["supportai_auth_screen"] = "login"
+    st.session_state["supportai_welcome_shown"] = False
+
+    if controller is not None:
+        _log_supportai_activity(
+            controller,
+            user,
+            "LOGIN",
+        )
+
+    logger.info(
+        "SupportAI login successful | user_id=%s | role=%s",
+        user.get("user_id"),
+        actual_role,
+    )
+    st.rerun()
+    return True
+
+
+def _logout_supportai(controller: RetailAssistController | None = None) -> None:
+    """Log out the current authentication session."""
+    current_user = st.session_state.get("supportai_user") or {}
+
+    if controller is not None and current_user:
+        _log_supportai_activity(
+            controller,
+            current_user,
+            "LOGOUT",
+        )
+
+    st.session_state["supportai_authenticated"] = False
+    st.session_state["supportai_user"] = None
+    st.session_state["supportai_auth_screen"] = "login"
+    st.session_state["supportai_auth_notice"] = None
+    st.session_state["supportai_welcome_shown"] = False
+    st.rerun()
+
+
+def render_user_login_form(controller: RetailAssistController) -> None:
+    """Render the normal user sign-in form."""
+    with st.form("supportai_user_login_form", clear_on_submit=False):
+        email = st.text_input(
+            "Email",
+            placeholder="you@example.com",
+            key="supportai_user_login_email",
+        )
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter your password",
+            key="supportai_user_login_password",
+        )
+        submitted = st.form_submit_button(
+            "Sign In",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submitted:
+        return
+
+    if not email.strip() or not password:
+        st.error("Please enter your email and password.")
+        return
+
+    auth = _auth_service(controller)
+    try:
+        user = auth.login(email=email, password=password)
+        if user is None:
+            if getattr(auth, "last_login_status", "") == "inactive":
+                st.error("This account is inactive. Please contact an administrator.")
+            else:
+                st.error("Invalid email or password.")
+            return
+        _complete_login(user, "USER", controller)
+    except Exception:
+        logger.exception("SupportAI user login failed.")
+        st.error("Unable to sign in right now. Please try again.")
+    finally:
+        _safe_auth_close(auth)
+
+
+def render_admin_login_form(controller: RetailAssistController) -> None:
+    """Render the admin portal sign-in form only."""
+    with st.form("supportai_admin_login_form", clear_on_submit=False):
+        email = st.text_input(
+            "Admin email",
+            placeholder="admin@example.com",
+            key="supportai_admin_login_email",
+        )
+        password = st.text_input(
+            "Admin password",
+            type="password",
+            placeholder="Enter your admin password",
+            key="supportai_admin_login_password",
+        )
+        submitted = st.form_submit_button(
+            "Enter Admin Portal",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submitted:
+        return
+
+    if not email.strip() or not password:
+        st.error("Please enter your admin email and password.")
+        return
+
+    auth = _auth_service(controller)
+    try:
+        user = auth.login(email=email, password=password)
+        if user is None:
+            if getattr(auth, "last_login_status", "") == "inactive":
+                st.error(
+                    "This administrator account is inactive. Please contact an administrator."
+                )
+            else:
+                st.error("Invalid admin email or password.")
+            return
+        _complete_login(user, "ADMIN", controller)
+    except Exception:
+        logger.exception("SupportAI admin login failed.")
+        st.error("Unable to sign in right now. Please try again.")
+    finally:
+        _safe_auth_close(auth)
+
+
+def render_forgot_password_form(controller: RetailAssistController) -> None:
+    """Render the secure password-reset request form."""
+    st.markdown(
+        '<div class="supportai-auth-form-copy">Enter your account email. If the account is eligible, a password-reset request will be sent to the administrator for verification.</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form("supportai_forgot_password_form", clear_on_submit=False):
+        email = st.text_input(
+            "Account email",
+            placeholder="you@example.com",
+            key="supportai_forgot_password_email",
+        )
+        submitted = st.form_submit_button(
+            "Request Password Reset",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submitted:
+        return
+
+    auth = _auth_service(controller)
+    try:
+        auth.request_password_reset(email=email)
+        st.session_state["supportai_auth_reset_notice"] = (
+            "If this account is eligible, a password-reset request has been submitted. "
+            "Please contact the administrator to complete the reset."
+        )
+        st.rerun()
+    except ValueError as exc:
+        st.error(str(exc))
+    except Exception:
+        logger.exception("SupportAI password reset request failed.")
+        st.error("Unable to submit the reset request right now. Please try again.")
+    finally:
+        _safe_auth_close(auth)
+
+
+def render_user_signup_form(controller: RetailAssistController) -> None:
+    """Render public signup; every new account is always created as USER."""
+    with st.form("supportai_user_signup_form", clear_on_submit=False):
+        name = st.text_input(
+            "Full name",
+            placeholder="Your name",
+            key="supportai_signup_name",
+        )
+        email = st.text_input(
+            "Email",
+            placeholder="you@example.com",
+            key="supportai_signup_email",
+        )
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="At least 8 characters",
+            key="supportai_signup_password",
+        )
+        confirm_password = st.text_input(
+            "Confirm password",
+            type="password",
+            placeholder="Re-enter your password",
+            key="supportai_signup_confirm_password",
+        )
+        submitted = st.form_submit_button(
+            "Create Account",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submitted:
+        return
+
+    if password != confirm_password:
+        st.error("Passwords do not match.")
+        return
+
+    auth = _auth_service(controller)
+    try:
+        user = auth.signup(name=name, email=email, password=password)
+        logger.info("SupportAI signup successful | user_id=%s", user.get("user_id"))
+        st.session_state["supportai_auth_screen"] = "login"
+        st.session_state["supportai_auth_notice"] = (
+            "Account created successfully. You can now sign in."
+        )
+        st.rerun()
+    except ValueError as exc:
+        st.error(str(exc))
+    except Exception:
+        logger.exception("SupportAI signup failed.")
+        st.error("Unable to create the account right now. Please try again.")
+    finally:
+        _safe_auth_close(auth)
+
+
+def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
+    """Render the fixed SupportAI authentication experience."""
+    initialize_auth_state()
+    if st.session_state.get("supportai_authenticated"):
+        return True
+
+    inject_auth_styles(theme)
+    notice = st.session_state.pop("supportai_auth_notice", None)
+    admin_mode = st.session_state.get("supportai_auth_screen") == "admin"
+    reset_mode = st.session_state.get("supportai_auth_screen") == "forgot_password"
+    reset_notice = st.session_state.pop("supportai_auth_reset_notice", None)
+
+    # Everything is inside one real Streamlit container so the viewport-fit CSS
+    # controls the complete authentication page instead of only its brand row.
+    with st.container(key="supportai_auth_root", border=False):
+        st.markdown(
+            """
+            <div class="supportai-auth-brandline">
+                <div class="supportai-auth-brand">
+                    <span class="supportai-auth-brand-mark">✦</span>
+                    <span>SupportAI</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        left, right = st.columns([0.94, 1.06], gap="small", vertical_alignment="top")
+
+        with left:
+            if admin_mode:
+                title = "Manage the<br>workspace."
+                copy = "A protected administrator gateway for the people responsible for the SupportAI environment."
+                features = [
+                    ("♙", "Administrator controls", "Provisioned accounts only."),
+                    ("▦", "Operational visibility", "Governed support intelligence."),
+                    ("✓", "Secure access", "Role verified against Snowflake."),
+                ]
+                footer = ""
+            elif reset_mode:
+                title = "Get back to<br>your workspace."
+                copy = (
+                    "Request a secure password reset without exposing account details."
+                )
+                features = [
+                    ("✓", "Secure request", "Account existence is not disclosed."),
+                    (
+                        "♙",
+                        "Administrator verified",
+                        "Reset requests are reviewed before completion.",
+                    ),
+                    (
+                        "✦",
+                        "Protected access",
+                        "Your existing account and role remain unchanged.",
+                    ),
+                ]
+                footer = ""
+            else:
+                title = "Support work.<br>Made intelligent."
+                copy = "One secure workspace for policy-grounded answers, live support-ticket intelligence and Cortex Agent orchestration."
+                features = [
+                    ("⌁", "Trusted policy answers", "Grounded in approved knowledge."),
+                    (
+                        "◫",
+                        "Live support analytics",
+                        "Understand ticket operations naturally.",
+                    ),
+                    ("✧", "Cortex Agent", "Route questions across trusted tools."),
+                ]
+                footer = ""
+
+            feature_html = "".join(
+                f"""<div class="supportai-auth-feature"><div class="supportai-auth-feature-icon">{icon}</div><div><div class="supportai-auth-feature-title">{heading}</div><div class="supportai-auth-feature-copy">{desc}</div></div></div>"""
+                for icon, heading, desc in features
+            )
+
+            promo_html = textwrap.dedent(
+                f"""
+                <div class="supportai-auth-promo">
+                    <div class="supportai-auth-promo-content">
+                        <div class="supportai-auth-promo-mark">✦</div>
+                        <div class="supportai-auth-promo-title">{title}</div>
+                        <div class="supportai-auth-promo-copy">{copy}</div>
+                        <div class="supportai-auth-features">{feature_html}</div>
+                    </div>
+                    {f'<div class="supportai-auth-promo-footer">{html.escape(footer)}</div>' if footer else ""}
+                </div>
+                """
+            ).strip()
+            if callable(getattr(st, "html", None)):
+                st.html(promo_html)
+            else:
+                st.markdown(promo_html, unsafe_allow_html=True)
+
+        with right:
+            with st.container(key="supportai_auth_form_wrap", border=True):
+                if admin_mode:
+                    st.markdown(
+                        '<div class="supportai-auth-admin-badge">✦ Administrator portal</div>'
+                        '<div class="supportai-auth-form-title">Welcome, admin.</div>'
+                        '<div class="supportai-auth-form-copy">Sign in with your provisioned administrator account.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    render_admin_login_form(controller)
+                    if st.button(
+                        "← Back to user sign in",
+                        key="supportai_back_to_user",
+                        use_container_width=False,
+                    ):
+                        st.session_state["supportai_auth_screen"] = "login"
+                        st.rerun()
+                elif reset_mode:
+                    st.markdown(
+                        '<div class="supportai-auth-admin-badge">✦ Password recovery</div>'
+                        '<div class="supportai-auth-form-title">Forgot your password?</div>'
+                        '<div class="supportai-auth-form-copy">Request a secure reset for your SupportAI account.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if reset_notice:
+                        st.success(reset_notice)
+                    render_forgot_password_form(controller)
+                    if st.button(
+                        "← Back to sign in",
+                        key="supportai_back_from_forgot_password",
+                        use_container_width=False,
+                    ):
+                        st.session_state["supportai_auth_screen"] = "login"
+                        st.rerun()
+                else:
+                    auth_title_left, auth_title_right = st.columns(
+                        [2.7, 1], gap="small", vertical_alignment="top"
+                    )
+                    with auth_title_left:
+                        st.markdown(
+                            '<div class="supportai-auth-form-title">Welcome!</div>'
+                            '<div class="supportai-auth-form-copy">Sign in to continue to your SupportAI workspace.</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with auth_title_right:
+                        with st.container(
+                            key="supportai_auth_admin_button", border=False
+                        ):
+                            if st.button(
+                                "Admin Portal ↗",
+                                key="supportai_open_admin_portal",
+                                use_container_width=True,
+                            ):
+                                st.session_state["supportai_auth_screen"] = "admin"
+                                st.rerun()
+
+                    if notice:
+                        st.success(notice)
+
+                    sign_in_tab, create_tab = st.tabs(["Sign In", "Create Account"])
+                    with sign_in_tab:
+                        render_user_login_form(controller)
+                        if st.button(
+                            "Forgot password?",
+                            key="supportai_forgot_password_link",
+                            use_container_width=False,
+                        ):
+                            st.session_state["supportai_auth_screen"] = (
+                                "forgot_password"
+                            )
+                            st.rerun()
+                    with create_tab:
+                        st.markdown(
+                            '<div class="supportai-auth-form-copy">Create a standard user account. Administrator accounts are provisioned separately.</div>',
+                            unsafe_allow_html=True,
+                        )
+                        render_user_signup_form(controller)
+
+                    st.markdown(
+                        '<div class="supportai-auth-divider"></div>'
+                        '<div class="supportai-auth-admin-link">Administrator access is restricted and provisioned separately.</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        st.markdown(
+            '<div class="supportai-auth-footer">SupportAI • Secure customer-support intelligence</div>',
+            unsafe_allow_html=True,
+        )
+
+    return False
+
+
+def inject_account_bar_styles(theme: str = "light") -> None:
+    """Style the authenticated account bar without relying on auth-only CSS."""
+    dark = str(theme).strip().lower() == "dark"
+    text = "#f8fafc" if dark else "#172033"
+    muted = "#b2bdcf" if dark else "#667085"
+    surface = "rgba(17,24,39,.52)" if dark else "rgba(255,255,255,.48)"
+    border = "rgba(255,255,255,.18)" if dark else "rgba(255,255,255,.72)"
+
+    st.markdown(
+        f"""
+    <style>
+    .st-key-supportai_account_shell {{
+        width:min(1280px,calc(100vw - 56px)) !important;
+        min-height:92px !important;
+        margin:12px auto 18px !important;
+        padding:12px 18px !important;
+        box-sizing:border-box !important;
+        border:1px solid {border} !important;
+        border-radius:22px !important;
+        background:linear-gradient(135deg,{surface},rgba(255,255,255,.16)) !important;
+        box-shadow:0 16px 38px rgba(15,23,42,.08),inset 0 1px rgba(255,255,255,.86) !important;
+        backdrop-filter:blur(24px) saturate(155%) !important;
+        -webkit-backdrop-filter:blur(24px) saturate(155%) !important;
+    }}
+    .st-key-supportai_account_shell > div {{ min-height:0 !important; }}
+    .st-key-supportai_account_shell [data-testid="stHorizontalBlock"] {{
+        align-items:center !important;
+        min-height:64px !important;
+    }}
+    .supportai-account-inner {{
+        display:flex !important; align-items:center !important; gap:11px !important;
+        min-width:0 !important; padding:0 3px !important;
+    }}
+    .supportai-account-avatar {{
+        width:56px; height:56px; flex:0 0 56px; border-radius:16px;
+        display:grid; place-items:center; color:#fff;
+        background:linear-gradient(135deg,#4f46e5,#9333ea);
+        box-shadow:0 8px 20px rgba(79,70,229,.24);
+        font-size:.70rem; font-weight:850;
+    }}
+    .supportai-account-copy {{ min-width:0; }}
+    .supportai-account-primary {{
+        display:flex; align-items:center; gap:9px; min-width:0; white-space:nowrap;
+    }}
+    .supportai-account-subtitle {{
+        margin-top:3px; color:{muted}; font-size:.60rem; line-height:1.3;
+    }}
+    .supportai-account-name {{ color:{text}; font-size:.80rem; font-weight:800; }}
+    .supportai-account-role {{
+        padding:4px 8px; border-radius:999px;
+        background:rgba(99,102,241,.11); border:1px solid rgba(99,102,241,.18);
+        color:#6366f1; font-size:.53rem; font-weight:850; letter-spacing:.06em;
+    }}
+    .st-key-supportai_account_shell button {{
+        min-height:48px !important; height:48px !important; border-radius:14px !important;
+        border:1px solid rgba(255,255,255,.72) !important;
+        background:rgba(255,255,255,.44) !important;
+        box-shadow:0 8px 20px rgba(15,23,42,.07),inset 0 1px rgba(255,255,255,.9) !important;
+        backdrop-filter:blur(14px) !important; -webkit-backdrop-filter:blur(14px) !important;
+        font-weight:750 !important;
+    }}
+    .st-key-supportai_account_shell button:hover {{
+        background:rgba(255,255,255,.68) !important;
+        border-color:rgba(99,102,241,.28) !important;
+        transform:translateY(-1px);
+    }}
+    @media(max-width:720px) {{
+        .st-key-supportai_account_shell {{ width:calc(100vw - 20px) !important; min-height:82px !important; margin:6px auto 10px !important; padding:10px 12px !important; }}
+    }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_authenticated_header(
+    controller: RetailAssistController,
+    theme: str = "light",
+) -> None:
+    """Render one aligned glass account bar for both users and admins."""
+    inject_account_bar_styles(theme)
+    user = st.session_state.get("supportai_user") or {}
+    raw_name = str(user.get("name") or "User").strip()
+    role = str(user.get("role") or "USER").upper().strip()
+    initials = "".join(part[0] for part in raw_name.split()[:2]).upper() or "U"
+
+    with st.container(key="supportai_account_shell", border=False):
+        left, middle, right = st.columns(
+            [0.7, 7.6, 1.5], gap="small", vertical_alignment="center"
+        )
+        with left:
+            st.markdown(
+                f'<div class="supportai-account-avatar">{html.escape(initials)}</div>',
+                unsafe_allow_html=True,
+            )
+        with middle:
+            st.markdown(
+                f"""<div class="supportai-account-copy">
+                    <div class="supportai-account-primary">
+                        <span class="supportai-account-name">{html.escape(raw_name)}</span>
+                        <span class="supportai-account-role">{html.escape(role)}</span>
+                    </div>
+                    <div class="supportai-account-subtitle">Signed in to your SupportAI workspace</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        with right:
+            if st.button(
+                "Sign out",
+                key="supportai_logout_button",
+                use_container_width=True,
+            ):
+                _logout_supportai(controller)
+
+
+# ============================================================
+# Admin Dashboard
+# ============================================================
+
+
+def inject_admin_dashboard_styles(theme: str = "light") -> None:
+    """Render the premium, motion-rich administrator control center."""
+    dark = str(theme).strip().lower() == "dark"
+    text_color = "#eef3ff" if dark else "#152033"
+    muted = "#a9b5c9" if dark else "#69778e"
+    surface = "rgba(9,17,36,.72)" if dark else "rgba(255,255,255,.70)"
+    soft_surface = "rgba(15,23,42,.74)" if dark else "rgba(255,255,255,.52)"
+    border = "rgba(255,255,255,.18)" if dark else "rgba(255,255,255,.82)"
+    card_border = "rgba(99,102,241,.20)" if dark else "rgba(99,102,241,.16)"
+
+    st.markdown(
+        f"""
+    <style>
+    /* ===================== ADMIN COMMAND CENTER ===================== */
+    .st-key-supportai_admin_dashboard {{
+        width:min(1360px,calc(100vw - 52px)) !important;
+        margin:0 auto 38px !important;
+        position:relative;
+        isolation:isolate;
+    }}
+    .st-key-supportai_admin_dashboard::before,
+    .st-key-supportai_admin_dashboard::after {{
+        content:"";
+        position:absolute;
+        pointer-events:none;
+        z-index:-1;
+        border-radius:50%;
+        filter:blur(26px);
+    }}
+    .st-key-supportai_admin_dashboard::before {{
+        width:420px;height:420px;left:-190px;top:90px;
+        background:radial-gradient(circle,rgba(99,102,241,.15),transparent 68%);
+        animation:sai-admin-drift-a 12s ease-in-out infinite alternate;
+    }}
+    .st-key-supportai_admin_dashboard::after {{
+        width:380px;height:380px;right:-170px;top:420px;
+        background:radial-gradient(circle,rgba(14,165,233,.13),transparent 68%);
+        animation:sai-admin-drift-b 15s ease-in-out infinite alternate;
+    }}
+    @keyframes sai-admin-drift-a {{ from {{transform:translate3d(0,0,0) scale(.96)}} to {{transform:translate3d(55px,35px,0) scale(1.06)}} }}
+    @keyframes sai-admin-drift-b {{ from {{transform:translate3d(0,0,0) scale(1)}} to {{transform:translate3d(-45px,-25px,0) scale(1.08)}} }}
+    @keyframes sai-admin-float {{ 0%,100%{{transform:translateY(0)}} 50%{{transform:translateY(-7px)}} }}
+    @keyframes sai-admin-pulse {{ 0%,100%{{box-shadow:0 0 0 0 rgba(34,197,94,.20)}} 50%{{box-shadow:0 0 0 7px rgba(34,197,94,0)}} }}
+    @keyframes sai-admin-sweep {{ 0%{{transform:translateX(-130%)}} 35%,100%{{transform:translateX(130%)}} }}
+    @keyframes sai-admin-grid {{ from{{background-position:0 0,0 0}} to{{background-position:36px 36px,36px 36px}} }}
+    .st-key-supportai_admin_dashboard > div {{position:relative;z-index:1}}
+
+    /* tab rail */
+    .st-key-supportai_admin_dashboard [data-baseweb="tab-list"] {{
+        display:flex;gap:6px !important;padding:7px !important;margin:0 0 20px !important;
+        border:1px solid {border} !important;border-radius:22px !important;background:{surface} !important;
+        backdrop-filter:blur(28px) saturate(160%) !important;-webkit-backdrop-filter:blur(28px) saturate(160%) !important;
+        box-shadow:0 20px 55px rgba(15,23,42,.10),inset 0 1px rgba(255,255,255,.88) !important;
+    }}
+    .st-key-supportai_admin_dashboard [data-baseweb="tab"] {{
+        position:relative;flex:1 1 0;min-width:0;border-radius:15px !important;
+        padding:12px 14px !important;color:{muted} !important;font-weight:850 !important;font-size:.72rem !important;
+        transition:all .22s ease !important;
+    }}
+    .st-key-supportai_admin_dashboard [data-baseweb="tab"]::before {{
+        content:"";position:absolute;inset:1px;border-radius:14px;background:linear-gradient(135deg,rgba(99,102,241,.07),transparent 55%);
+        opacity:0;transition:opacity .22s ease;pointer-events:none;
+    }}
+    .st-key-supportai_admin_dashboard [data-baseweb="tab"]:hover {{color:#4f46e5 !important;transform:translateY(-1px);}}
+    .st-key-supportai_admin_dashboard [data-baseweb="tab"]:hover::before {{opacity:1}}
+    .st-key-supportai_admin_dashboard [aria-selected="true"] {{
+        color:#4338ca !important;background:linear-gradient(135deg,rgba(99,102,241,.16),rgba(56,189,248,.10)) !important;
+        box-shadow:0 10px 24px rgba(79,70,229,.12),inset 0 1px rgba(255,255,255,.92) !important;
+    }}
+    .st-key-supportai_admin_dashboard [aria-selected="true"]::after {{
+        content:"";position:absolute;left:20%;right:20%;bottom:2px;height:2px;border-radius:999px;
+        background:linear-gradient(90deg,#4f46e5,#06b6d4);box-shadow:0 0 12px rgba(79,70,229,.35);
+    }}
+
+    /* hero */
+    .supportai-admin-hero {{
+        position:relative;overflow:hidden;min-height:210px;padding:30px 32px;margin:0 0 20px;border-radius:30px;
+        border:1px solid {border};color:{text_color};
+        background:
+            radial-gradient(circle at 92% 12%,rgba(99,102,241,.28),transparent 25%),
+            radial-gradient(circle at 8% 90%,rgba(14,165,233,.13),transparent 29%),
+            linear-gradient(135deg,rgba(255,255,255,.84),rgba(238,242,255,.62));
+        box-shadow:0 32px 85px rgba(15,23,42,.12),inset 0 1px rgba(255,255,255,.95);
+        backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%);
+    }}
+    .supportai-admin-hero::before {{
+        content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(99,102,241,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(99,102,241,.035) 1px,transparent 1px);
+        background-size:36px 36px;mask-image:linear-gradient(to right,transparent,black 20%,black 80%,transparent);animation:sai-admin-grid 18s linear infinite;pointer-events:none;
+    }}
+    .supportai-admin-hero::after {{
+        content:"";position:absolute;width:34%;height:180%;top:-40%;left:-40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.30),transparent);
+        transform:skewX(-18deg);animation:sai-admin-sweep 10s ease-in-out infinite;pointer-events:none;
+    }}
+    body:has(.ra-theme-marker-dark) .supportai-admin-hero {{
+        background:radial-gradient(circle at 92% 12%,rgba(99,102,241,.32),transparent 26%),radial-gradient(circle at 8% 90%,rgba(14,165,233,.14),transparent 30%),linear-gradient(135deg,rgba(10,18,38,.92),rgba(21,27,57,.82));
+        border-color:rgba(148,163,184,.20);
+    }}
+    /* Dark-mode hero text and status pills */
+    body:has(.ra-theme-marker-dark) .supportai-admin-hero-kicker {{
+        color:#818cf8 !important;
+    }}
+    body:has(.ra-theme-marker-dark) .supportai-admin-title {{
+        color:#f8fafc !important;
+    }}
+    body:has(.ra-theme-marker-dark) .supportai-admin-copy {{
+        color:#b7c4d8 !important;
+    }}
+    body:has(.ra-theme-marker-dark) .supportai-admin-meta-pill {{
+        color:#dbe5f3 !important;
+        background:rgba(15,23,42,.58) !important;
+        border-color:rgba(148,163,184,.24) !important;
+        box-shadow:inset 0 1px rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.12);
+    }}
+    body:has(.ra-theme-marker-dark) .supportai-admin-meta-pill:hover {{
+        background:rgba(30,41,59,.70) !important;
+        border-color:rgba(129,140,248,.32) !important;
+    }}
+    .supportai-admin-hero-grid {{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:28px;align-items:center}}
+    .supportai-admin-hero-kicker {{color:#6366f1;font-size:.62rem;font-weight:950;letter-spacing:.18em;text-transform:uppercase}}
+    .supportai-admin-title {{margin-top:6px;font-size:2.30rem;line-height:1.02;font-weight:950;letter-spacing:-.06em}}
+    .supportai-admin-copy {{margin-top:10px;max-width:760px;color:{muted};font-size:.82rem;line-height:1.55}}
+    .supportai-admin-hero-meta {{display:flex;flex-wrap:wrap;gap:8px;margin-top:17px}}
+    .supportai-admin-meta-pill {{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;border:1px solid rgba(99,102,241,.14);background:rgba(255,255,255,.44);color:{muted};font-size:.59rem;font-weight:900;backdrop-filter:blur(12px)}}
+    .supportai-admin-meta-dot {{width:7px;height:7px;border-radius:50%;background:#22c55e;animation:sai-admin-pulse 2.3s infinite}}
+    .supportai-admin-hero-orb {{width:126px;height:126px;border-radius:50%;position:relative;background:radial-gradient(circle at 36% 34%,rgba(255,255,255,.95),rgba(129,140,248,.24) 34%,rgba(79,70,229,.07) 65%,transparent 70%);border:1px solid rgba(255,255,255,.72);box-shadow:0 20px 48px rgba(79,70,229,.20),inset 0 1px rgba(255,255,255,.90);animation:sai-admin-float 6s ease-in-out infinite}}
+    .supportai-admin-hero-orb::before {{content:"✦";position:absolute;inset:0;display:grid;place-items:center;color:#4f46e5;font-size:34px;text-shadow:0 0 24px rgba(99,102,241,.35)}}
+    .supportai-admin-hero-orb::after {{content:"";position:absolute;inset:18px;border-radius:50%;border:1px solid rgba(99,102,241,.20);box-shadow:0 0 0 18px rgba(99,102,241,.035),0 0 0 36px rgba(14,165,233,.025)}}
+
+    /* KPI cards */
+    .supportai-admin-stat {{position:relative;overflow:hidden;min-height:128px;padding:19px;border-radius:21px;border:1px solid {card_border};background:{surface};color:{text_color};box-shadow:0 18px 44px rgba(15,23,42,.075),inset 0 1px rgba(255,255,255,.82);backdrop-filter:blur(22px) saturate(145%);transition:transform .24s ease,box-shadow .24s ease,border-color .24s ease}}
+    .supportai-admin-stat::before {{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,#4f46e5,#06b6d4,#8b5cf6);opacity:.75}}
+    .supportai-admin-stat::after {{content:"";position:absolute;width:120px;height:120px;right:-50px;top:-50px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,.16),transparent 68%);pointer-events:none}}
+    .supportai-admin-stat:hover {{transform:translateY(-5px);border-color:rgba(99,102,241,.30);box-shadow:0 26px 58px rgba(79,70,229,.14),inset 0 1px rgba(255,255,255,.90)}}
+    .supportai-admin-stat-label {{color:{muted};font-size:.58rem;font-weight:900;letter-spacing:.10em;text-transform:uppercase}}
+    .supportai-admin-stat-value {{margin-top:9px;font-size:1.88rem;font-weight:950;letter-spacing:-.05em}}
+    .supportai-admin-stat-note {{margin-top:4px;color:{muted};font-size:.61rem}}
+
+    /* general cards */
+    .supportai-admin-card {{position:relative;overflow:hidden;padding:20px;border-radius:22px;border:1px solid {card_border};background:{surface};box-shadow:0 18px 46px rgba(15,23,42,.075),inset 0 1px rgba(255,255,255,.80);backdrop-filter:blur(22px) saturate(145%)}}
+    .supportai-admin-card::before {{content:"";position:absolute;width:210px;height:210px;right:-120px;top:-120px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,.09),transparent 68%);pointer-events:none}}
+    .supportai-admin-card-title {{font-size:.84rem;font-weight:900;color:{text_color}}}
+    .supportai-admin-card-copy {{margin-top:5px;color:{muted};font-size:.66rem;line-height:1.5}}
+    .supportai-admin-bar-row {{margin-top:16px}}
+    .supportai-admin-bar-head {{display:flex;justify-content:space-between;gap:10px;color:{muted};font-size:.64rem;font-weight:850}}
+    .supportai-admin-bar-track {{margin-top:7px;height:9px;border-radius:999px;background:rgba(148,163,184,.12);overflow:hidden}}
+    .supportai-admin-bar-fill {{height:100%;border-radius:999px;background:linear-gradient(90deg,#4f46e5,#06b6d4);box-shadow:0 0 14px rgba(79,70,229,.16)}}
+
+    /* admin list items — intentionally no glossy hover */
+    .supportai-admin-event {{padding:13px 0;border-bottom:1px solid rgba(148,163,184,.13)}}
+    .supportai-admin-event:last-child {{border-bottom:0}}
+    .supportai-admin-event-main {{display:flex;justify-content:space-between;gap:12px;align-items:baseline}}
+    .supportai-admin-event-user {{color:{text_color};font-size:.72rem;font-weight:900}}
+    .supportai-admin-event-type {{color:#6366f1;font-size:.57rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}}
+    .supportai-admin-event-meta {{margin-top:4px;color:{muted};font-size:.61rem}}
+    .supportai-admin-user-card {{margin-top:10px;padding:16px;border-radius:18px;border:1px solid {card_border};background:{soft_surface};box-shadow:0 12px 30px rgba(15,23,42,.055),inset 0 1px rgba(255,255,255,.74);transition:transform .20s ease,box-shadow .20s ease,border-color .20s ease}}
+    .supportai-admin-user-card:hover {{transform:translateY(-2px);border-color:rgba(99,102,241,.24);box-shadow:0 17px 38px rgba(79,70,229,.09),inset 0 1px rgba(255,255,255,.84)}}
+    .supportai-admin-user-name {{color:{text_color};font-size:.84rem;font-weight:900}}
+    .supportai-admin-user-email {{margin-top:3px;color:{muted};font-size:.65rem}}
+    .supportai-admin-pill {{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:.55rem;font-weight:900;margin-right:5px}}
+    .supportai-admin-empty {{padding:18px 16px;border-radius:17px;background:rgba(99,102,241,.055);border:1px dashed rgba(99,102,241,.16);color:{muted};font-size:.68rem}}
+    .supportai-admin-recovery {{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 18px;border-radius:18px;border:1px solid rgba(245,158,11,.18);background:linear-gradient(135deg,rgba(245,158,11,.08),rgba(99,102,241,.055));box-shadow:0 14px 32px rgba(245,158,11,.05)}}
+    .supportai-admin-recovery-badge {{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-radius:999px;background:rgba(245,158,11,.10);color:#b45309;font-size:.57rem;font-weight:900}}
+    .supportai-admin-mini-card {{position:relative;overflow:hidden;padding:16px;border-radius:18px;border:1px solid {card_border};background:{soft_surface};box-shadow:inset 0 1px rgba(255,255,255,.76);transition:transform .20s ease,box-shadow .20s ease}}
+    .supportai-admin-mini-card::after {{content:"";position:absolute;width:90px;height:90px;right:-35px;bottom:-35px;border-radius:50%;background:radial-gradient(circle,rgba(6,182,212,.09),transparent 68%)}}
+    .supportai-admin-mini-card:hover {{transform:translateY(-3px);box-shadow:0 16px 34px rgba(79,70,229,.09),inset 0 1px rgba(255,255,255,.86)}}
+    .supportai-admin-mini-label {{color:{muted};font-size:.57rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}}
+    .supportai-admin-mini-value {{margin-top:7px;color:{text_color};font-size:1.08rem;font-weight:950}}
+    .supportai-admin-mini-note {{margin-top:3px;color:{muted};font-size:.60rem;line-height:1.4}}
+
+    /* small command tiles */
+    .supportai-admin-command-grid {{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 20px}}
+    .supportai-admin-command {{position:relative;overflow:hidden;min-height:86px;padding:15px 16px;border:1px solid {card_border};border-radius:18px;background:{soft_surface};box-shadow:0 12px 28px rgba(15,23,42,.055),inset 0 1px rgba(255,255,255,.78);transition:transform .20s ease,border-color .20s ease,box-shadow .20s ease}}
+    .supportai-admin-command:hover {{transform:translateY(-3px);border-color:rgba(99,102,241,.28);box-shadow:0 20px 38px rgba(79,70,229,.11),inset 0 1px rgba(255,255,255,.88)}}
+    .supportai-admin-command-icon {{display:inline-grid;place-items:center;width:31px;height:31px;border-radius:10px;background:linear-gradient(135deg,rgba(99,102,241,.16),rgba(6,182,212,.10));color:#4f46e5;font-weight:950}}
+    .supportai-admin-command-title {{margin-top:9px;color:{text_color};font-size:.68rem;font-weight:900}}
+    .supportai-admin-command-note {{margin-top:2px;color:{muted};font-size:.57rem}}
+
+    @media(max-width:900px) {{
+        .st-key-supportai_admin_dashboard {{width:calc(100vw - 24px) !important}}
+        .supportai-admin-hero-grid {{grid-template-columns:1fr}}
+        .supportai-admin-hero-orb {{display:none}}
+        .supportai-admin-command-grid {{grid-template-columns:1fr}}
+        .st-key-supportai_admin_dashboard [data-baseweb="tab"] {{padding:10px 8px !important;font-size:.67rem !important}}
+    }}
+    @media(prefers-reduced-motion:reduce) {{ *,*::before,*::after {{animation:none !important;transition:none !important}} }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def _admin_glass_card(title: str, value: str, note: str = "") -> None:
+    """Render an interactive admin KPI card."""
+    st.html(
+        textwrap.dedent(
+            f"""
+            <div class="supportai-admin-stat">
+                <div class="supportai-admin-stat-label">{html.escape(title)}</div>
+                <div class="supportai-admin-stat-value">{html.escape(value)}</div>
+                <div class="supportai-admin-stat-note">{html.escape(note)}</div>
+            </div>
+            """
+        )
+    )
+
+
+def _admin_bar_card(title: str, copy: str, values: list[tuple[str, int]]) -> None:
+    """Render a glass card with clean visual bars."""
+    max_value = max([v for _, v in values], default=0)
+    rows = []
+    for label, value in values:
+        width = 0 if max_value <= 0 else max(4, int((value / max_value) * 100))
+        rows.append(
+            f"""
+            <div class="supportai-admin-bar-row">
+                <div class="supportai-admin-bar-head"><span>{html.escape(label)}</span><span>{value}</span></div>
+                <div class="supportai-admin-bar-track"><div class="supportai-admin-bar-fill" style="width:{width}%"></div></div>
+            </div>
+            """
+        )
+    st.html(
+        textwrap.dedent(
+            f"""
+            <div class="supportai-admin-card">
+                <div class="supportai-admin-card-title">{html.escape(title)}</div>
+                <div class="supportai-admin-card-copy">{html.escape(copy)}</div>
+                {"".join(rows)}
+            </div>
+            """
+        )
+    )
+
+
+def render_admin_dashboard(
+    controller: RetailAssistController,
+    theme: str = "light",
+) -> None:
+    """Render the administrator workspace as an interactive glass control center."""
+    authenticated_user = st.session_state.get("supportai_user") or {}
+    role = str(authenticated_user.get("role") or "").strip().upper()
+    if role != "ADMIN":
+        st.error("Administrator access required.")
+        return
+
+    inject_admin_dashboard_styles(theme)
+    render_authenticated_header(controller, theme)
+
+    with st.container(key="supportai_admin_dashboard", border=False):
+        display_name = str(authenticated_user.get("name") or "Administrator")
+        st.html(
+            textwrap.dedent(
+                f"""
+                <div class="supportai-admin-hero">
+                    <div class="supportai-admin-hero-grid">
+                        <div>
+                            <div class="supportai-admin-hero-kicker">Administration</div>
+                            <div class="supportai-admin-title">Command the workspace.</div>
+                            <div class="supportai-admin-copy">
+                                Welcome, {html.escape(display_name)}. Monitor access, govern the knowledge base,
+                                manage recovery, and understand workspace activity from one protected control center.
+                            </div>
+                            <div class="supportai-admin-hero-meta">
+                                <span class="supportai-admin-meta-pill"><span class="supportai-admin-meta-dot"></span>System online</span>
+                                <span class="supportai-admin-meta-pill">Snowflake governed</span>
+                                <span class="supportai-admin-meta-pill">Administrator access</span>
+                            </div>
+                        </div>
+                        <div class="supportai-admin-hero-orb" aria-hidden="true"></div>
+                    </div>
+                </div>
+                """
+            )
+        )
+
+        st.html(
+            textwrap.dedent("""
+            <div class="supportai-admin-command-grid">
+                <div class="supportai-admin-command">
+                    <div class="supportai-admin-command-icon">⌁</div>
+                    <div class="supportai-admin-command-title">Access control</div>
+                    <div class="supportai-admin-command-note">Accounts & recovery</div>
+                </div>
+                <div class="supportai-admin-command">
+                    <div class="supportai-admin-command-icon">▦</div>
+                    <div class="supportai-admin-command-title">Knowledge governance</div>
+                    <div class="supportai-admin-command-note">Documents & indexing</div>
+                </div>
+                <div class="supportai-admin-command">
+                    <div class="supportai-admin-command-icon">◫</div>
+                    <div class="supportai-admin-command-title">Workspace telemetry</div>
+                    <div class="supportai-admin-command-note">Usage & activity</div>
+                </div>
+            </div>
+        """)
+        )
+
+        admin_service = AdminService(session=getattr(controller, "session", None))
+        try:
+            stats = admin_service.get_user_stats()
+            users = admin_service.list_users()
+        except Exception:
+            admin_service.close()
+            logger.exception("Failed to load admin dashboard data.")
+            st.error("Unable to load the administration dashboard.")
+            return
+
+        overview_tab, accounts_tab, knowledge_tab, activity_tab = st.tabs(
+            ["Overview", "Accounts", "Knowledge Base", "Usage & Activity"]
+        )
+
+        with overview_tab:
+            st.markdown(
+                '<div class="ra-section-label">Workspace snapshot</div><div class="ra-section-title">At a glance</div>',
+                unsafe_allow_html=True,
+            )
+            metric_cols = st.columns(4, gap="medium")
+            with metric_cols[0]:
+                _admin_glass_card(
+                    "Total accounts",
+                    str(stats["total_users"]),
+                    "All registered accounts",
+                )
+            with metric_cols[1]:
+                _admin_glass_card(
+                    "Active accounts", str(stats["active_users"]), "Currently enabled"
+                )
+            with metric_cols[2]:
+                _admin_glass_card(
+                    "User accounts",
+                    str(stats["total_user_accounts"]),
+                    "Standard workspace users",
+                )
+            with metric_cols[3]:
+                _admin_glass_card(
+                    "Administrators",
+                    str(stats["total_admins"]),
+                    "Protected admin accounts",
+                )
+
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            overview_left, overview_right = st.columns([1.05, 0.95], gap="medium")
+            with overview_left:
+                active_users = sum(
+                    1
+                    for user in users
+                    if str(user.get("status") or "").upper() == "ACTIVE"
+                )
+                inactive_users = max(0, len(users) - active_users)
+                _admin_bar_card(
+                    "Account status",
+                    "A live view of enabled versus disabled workspace accounts.",
+                    [("Active", active_users), ("Inactive", inactive_users)],
+                )
+            with overview_right:
+                admin_count = sum(
+                    1
+                    for user in users
+                    if str(user.get("role") or "").upper() == "ADMIN"
+                )
+                user_count = max(0, len(users) - admin_count)
+                _admin_bar_card(
+                    "Role distribution",
+                    "Current account mix across the SupportAI workspace.",
+                    [("Users", user_count), ("Administrators", admin_count)],
+                )
+
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            st.markdown(
+                '<div class="ra-section-label">Command summary</div><div class="ra-section-title">Control center health</div>',
+                unsafe_allow_html=True,
+            )
+            health_cols = st.columns(3, gap="medium")
+            with health_cols[0]:
+                st.html(
+                    textwrap.dedent("""
+                    <div class="supportai-admin-mini-card">
+                        <div class="supportai-admin-mini-label">Access posture</div>
+                        <div class="supportai-admin-mini-value">Protected</div>
+                        <div class="supportai-admin-mini-note">Role-aware administrator controls are active.</div>
+                    </div>
+                """)
+                )
+            with health_cols[1]:
+                st.html(
+                    textwrap.dedent("""
+                    <div class="supportai-admin-mini-card">
+                        <div class="supportai-admin-mini-label">Knowledge control</div>
+                        <div class="supportai-admin-mini-value">Managed</div>
+                        <div class="supportai-admin-mini-note">Documents are governed from the admin workspace.</div>
+                    </div>
+                """)
+                )
+            with health_cols[2]:
+                st.html(
+                    textwrap.dedent("""
+                    <div class="supportai-admin-mini-card">
+                        <div class="supportai-admin-mini-label">Activity visibility</div>
+                        <div class="supportai-admin-mini-value">Traceable</div>
+                        <div class="supportai-admin-mini-note">Workspace usage is available in the activity center.</div>
+                    </div>
+                """)
+                )
+
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            reset_service = _auth_service(controller)
+            try:
+                reset_requests = reset_service.list_pending_password_resets()
+            except Exception:
+                logger.exception("Failed to load password reset requests.")
+                reset_requests = []
+            finally:
+                _safe_auth_close(reset_service)
+            if reset_requests:
+                st.html(
+                    textwrap.dedent(f"""
+                    <div class="supportai-admin-recovery">
+                        <div>
+                            <div class="supportai-admin-card-title">{len(reset_requests)} pending password reset request(s)</div>
+                            <div class="supportai-admin-card-copy">Open Accounts to verify and complete the waiting requests.</div>
+                        </div>
+                        <span class="supportai-admin-recovery-badge">● Action required</span>
+                    </div>
+                """)
+                )
+            else:
+                st.html(
+                    '<div class="supportai-admin-empty">No pending password-reset requests. Workspace recovery queue is clear.</div>'
+                )
+
+        with accounts_tab:
+            st.markdown(
+                '<div class="ra-section-label">Access management</div><div class="ra-section-title">Accounts & recovery</div>',
+                unsafe_allow_html=True,
+            )
+
+            reset_service = _auth_service(controller)
+            try:
+                reset_requests = reset_service.list_pending_password_resets()
+            except Exception:
+                logger.exception("Failed to load password reset requests.")
+                reset_requests = []
+                st.error("Unable to load password-reset requests.")
+            finally:
+                _safe_auth_close(reset_service)
+
+            if reset_requests:
+                for reset_request in reset_requests:
+                    reset_id = str(reset_request.get("reset_id") or "")
+                    reset_name = str(reset_request.get("name") or "User")
+                    reset_email = str(reset_request.get("email") or "")
+                    requested_at = str(reset_request.get("requested_at") or "—")
+                    user_status = str(
+                        reset_request.get("user_status") or "ACTIVE"
+                    ).upper()
+                    st.html(
+                        textwrap.dedent(f"""
+                        <div class="supportai-admin-user-card">
+                            <div class="supportai-admin-user-name">{html.escape(reset_name)}</div>
+                            <div class="supportai-admin-user-email">{html.escape(reset_email)}</div>
+                            <div style="margin-top:7px; color:#94a3b8; font-size:.60rem;">Requested {html.escape(requested_at)} • Account {html.escape(user_status)}</div>
+                        </div>
+                    """)
+                    )
+                    with st.form(
+                        f"supportai_reset_form_{reset_id}", clear_on_submit=True
+                    ):
+                        password_cols = st.columns(2, gap="small")
+                        with password_cols[0]:
+                            new_password = st.text_input(
+                                "New password",
+                                type="password",
+                                placeholder="At least 8 characters",
+                                key=f"supportai_reset_password_{reset_id}",
+                            )
+                        with password_cols[1]:
+                            confirm_password = st.text_input(
+                                "Confirm password",
+                                type="password",
+                                placeholder="Re-enter password",
+                                key=f"supportai_reset_confirm_{reset_id}",
+                            )
+                        reset_submitted = st.form_submit_button(
+                            "Complete Password Reset",
+                            type="primary",
+                            use_container_width=True,
+                        )
+                    if reset_submitted:
+                        if new_password != confirm_password:
+                            st.error("Passwords do not match.")
+                        else:
+                            reset_service = _auth_service(controller)
+                            try:
+                                reset_service.complete_password_reset(
+                                    reset_id=reset_id, new_password=new_password
+                                )
+                                st.success("Password reset completed successfully.")
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
+                            except Exception:
+                                logger.exception(
+                                    "Failed to complete password reset | reset_id=%s",
+                                    reset_id,
+                                )
+                                st.error("Unable to complete this password reset.")
+                            finally:
+                                _safe_auth_close(reset_service)
+            else:
+                st.html(
+                    '<div class="supportai-admin-empty">No pending password-reset requests.</div>'
+                )
+
+            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="ra-section-label">Workspace accounts</div><div class="ra-section-title">Users</div>',
+                unsafe_allow_html=True,
+            )
+            filter_col, count_col = st.columns([3.5, 1], gap="medium")
+            with filter_col:
+                account_filter = (
+                    st.text_input(
+                        "Filter accounts",
+                        placeholder="Search by name or email",
+                        key="supportai_admin_account_filter",
+                        label_visibility="collapsed",
+                    )
+                    .strip()
+                    .lower()
+                )
+            with count_col:
+                st.html(
+                    textwrap.dedent(f"""
+                    <div class="supportai-admin-mini-card" style="min-height:unset; padding:11px 14px;">
+                        <div class="supportai-admin-mini-label">Visible accounts</div>
+                        <div class="supportai-admin-mini-value" style="font-size:1rem;">{len(users)}</div>
+                    </div>
+                """)
+                )
+
+            filtered_users = [
+                user
+                for user in users
+                if not account_filter
+                or account_filter in str(user.get("name") or "").lower()
+                or account_filter in str(user.get("email") or "").lower()
+            ]
+            if not filtered_users:
+                st.html(
+                    '<div class="supportai-admin-empty">No accounts match the current filter.</div>'
+                )
+            for user in filtered_users:
+                user_id = str(user.get("user_id") or "")
+                name = str(user.get("name") or "Unknown User")
+                email = str(user.get("email") or "")
+                user_role = str(user.get("role") or "USER").upper()
+                status = str(user.get("status") or "INACTIVE").upper()
+                created_display = str(user.get("created_at") or "—")
+                login_display = str(user.get("last_login") or "Never")
+                left, middle, right = st.columns(
+                    [4.0, 3.0, 1.35], gap="small", vertical_alignment="center"
+                )
+                with left:
+                    st.html(
+                        textwrap.dedent(f"""
+                        <div class="supportai-admin-user-card" style="margin-top:0;">
+                            <div class="supportai-admin-user-name">{html.escape(name)}</div>
+                            <div class="supportai-admin-user-email">{html.escape(email)}</div>
+                            <div style="margin-top:6px; color:#94a3b8; font-size:.58rem;">Created {html.escape(created_display)}</div>
+                        </div>
+                    """)
+                    )
+                with middle:
+                    role_bg = (
+                        "rgba(99,102,241,.11)"
+                        if user_role == "ADMIN"
+                        else "rgba(59,130,246,.10)"
+                    )
+                    role_color = "#6366f1" if user_role == "ADMIN" else "#2563eb"
+                    status_bg = (
+                        "rgba(16,185,129,.10)"
+                        if status == "ACTIVE"
+                        else "rgba(239,68,68,.10)"
+                    )
+                    status_color = "#059669" if status == "ACTIVE" else "#dc2626"
+                    st.html(
+                        textwrap.dedent(f"""
+                        <div class="supportai-admin-user-card" style="margin-top:0;">
+                            <span class="supportai-admin-pill" style="background:{role_bg}; color:{role_color};">{"Administrator" if user_role == "ADMIN" else "User"}</span>
+                            <span class="supportai-admin-pill" style="background:{status_bg}; color:{status_color};">{"Active" if status == "ACTIVE" else "Inactive"}</span>
+                            <div style="margin-top:8px; color:#94a3b8; font-size:.58rem;">Last login {html.escape(login_display)}</div>
+                        </div>
+                    """)
+                    )
+                with right:
+                    if user_role == "ADMIN":
+                        st.caption("Protected")
+                    elif status == "ACTIVE":
+                        if st.button(
+                            "Deactivate",
+                            key=f"admin_deactivate_{user_id}",
+                            use_container_width=True,
+                        ):
+                            try:
+                                changed = admin_service.deactivate_user(user_id)
+                                if changed:
+                                    st.success("User deactivated.")
+                                    st.rerun()
+                                else:
+                                    st.warning("No account was changed.")
+                            except Exception:
+                                logger.exception(
+                                    "Failed to deactivate user | user_id=%s", user_id
+                                )
+                                st.error("Unable to update this account.")
+                    else:
+                        if st.button(
+                            "Activate",
+                            key=f"admin_activate_{user_id}",
+                            use_container_width=True,
+                        ):
+                            try:
+                                changed = admin_service.activate_user(user_id)
+                                if changed:
+                                    st.success("User activated.")
+                                    st.rerun()
+                                else:
+                                    st.warning("No account was changed.")
+                            except Exception:
+                                logger.exception(
+                                    "Failed to activate user | user_id=%s", user_id
+                                )
+                                st.error("Unable to update this account.")
+
+        with knowledge_tab:
+            st.markdown(
+                '<div class="ra-section-label">Knowledge base</div><div class="ra-section-title">Administrator workspace</div>',
+                unsafe_allow_html=True,
+            )
+            st.html(
+                textwrap.dedent("""
+                <div class="supportai-admin-card" style="margin-bottom:14px;">
+                    <div class="supportai-admin-card-title">Knowledge control</div>
+                    <div class="supportai-admin-card-copy">Upload, review, retry, re-index, deactivate, and refresh support documents from one controlled workspace.</div>
+                </div>
+            """)
+            )
+            render_document_management(controller)
+
+        with activity_tab:
+            st.markdown(
+                '<div class="ra-section-label">Workspace activity</div><div class="ra-section-title">Usage at a glance</div>',
+                unsafe_allow_html=True,
+            )
+            activity_service = ActivityService(
+                session=getattr(controller, "session", None)
+            )
+            try:
+                activity_summary = activity_service.get_usage_summary()
+                recent_activity = activity_service.list_recent_activity(limit=40)
+                user_usage = activity_service.list_user_usage(limit=25)
+
+                metric_cols = st.columns(4, gap="medium")
+                with metric_cols[0]:
+                    _admin_glass_card(
+                        "Active users (7d)",
+                        str(activity_summary["active_users"]),
+                        "Distinct active accounts",
+                    )
+                with metric_cols[1]:
+                    _admin_glass_card(
+                        "Queries (7d)",
+                        str(activity_summary["total_queries"]),
+                        "All assistant queries",
+                    )
+                with metric_cols[2]:
+                    _admin_glass_card(
+                        "Logins (7d)",
+                        str(activity_summary["total_logins"]),
+                        "Successful sign-ins",
+                    )
+                with metric_cols[3]:
+                    _admin_glass_card(
+                        "Agent queries (7d)",
+                        str(activity_summary["agent_queries"]),
+                        "Cortex Agent usage",
+                    )
+
+                st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+                chart_left, chart_right = st.columns(2, gap="medium")
+                with chart_left:
+                    _admin_bar_card(
+                        "Query mix",
+                        "Distribution across the three user-facing assistant modes.",
+                        [
+                            ("Policy RAG", activity_summary["policy_queries"]),
+                            (
+                                "Support Analytics",
+                                activity_summary["analytics_queries"],
+                            ),
+                            ("Cortex Agent", activity_summary["agent_queries"]),
+                        ],
+                    )
+                with chart_right:
+                    recent_counts = {"LOGIN": 0, "QUERY": 0, "LOGOUT": 0}
+                    for event in recent_activity:
+                        event_type = str(event.get("activity_type") or "").upper()
+                        if event_type in recent_counts:
+                            recent_counts[event_type] += 1
+                    _admin_bar_card(
+                        "Recent event mix",
+                        "Event types visible in the latest activity window.",
+                        [
+                            ("Logins", recent_counts["LOGIN"]),
+                            ("Queries", recent_counts["QUERY"]),
+                            ("Logouts", recent_counts["LOGOUT"]),
+                        ],
+                    )
+
+                st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+                recent_col, account_col = st.columns([1.08, 0.92], gap="medium")
+                with recent_col:
+                    st.markdown(
+                        '<div class="ra-section-label">Recent activity</div><div class="ra-section-title">Latest workspace events</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if not recent_activity:
+                        st.html(
+                            '<div class="supportai-admin-empty">No activity has been recorded yet.</div>'
+                        )
+                    else:
+                        event_parts = []
+                        for event in recent_activity[:18]:
+                            event_name = str(event.get("name") or "Unknown User")
+                            event_email = str(event.get("email") or "")
+                            event_type = str(event.get("activity_type") or "")
+                            event_mode = str(event.get("mode") or "")
+                            event_status = str(event.get("status") or "")
+                            event_time = str(event.get("created_at") or "—")
+                            latency = event.get("latency_seconds")
+                            latency_text = (
+                                f" • {float(latency):.2f}s"
+                                if latency is not None
+                                else ""
+                            )
+                            mode_text = f" • {event_mode}" if event_mode else ""
+                            event_parts.append(
+                                textwrap.dedent(f"""
+                                <div class="supportai-admin-event">
+                                    <div class="supportai-admin-event-main">
+                                        <div class="supportai-admin-event-user">{html.escape(event_name)} <span style="font-weight:500; color:#94a3b8;">{html.escape(event_email)}</span></div>
+                                        <div class="supportai-admin-event-type">{html.escape(event_type)}</div>
+                                    </div>
+                                    <div class="supportai-admin-event-meta">{html.escape(event_status)}{html.escape(mode_text)}{html.escape(latency_text)} • {html.escape(event_time)}</div>
+                                </div>
+                            """)
+                            )
+                        st.html(
+                            "<div class='supportai-admin-card'>"
+                            + "".join(event_parts)
+                            + "</div>"
+                        )
+                with account_col:
+                    st.markdown(
+                        '<div class="ra-section-label">User usage</div><div class="ra-section-title">Usage by account</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if not user_usage:
+                        st.html(
+                            '<div class="supportai-admin-empty">No user usage has been recorded yet.</div>'
+                        )
+                    else:
+                        max_activity = max(
+                            [int(row.get("activity_count") or 0) for row in user_usage],
+                            default=0,
+                        )
+                        account_parts = []
+                        for usage in user_usage:
+                            usage_name = str(usage.get("name") or "Unknown User")
+                            usage_email = str(usage.get("email") or "")
+                            activity_count = int(usage.get("activity_count") or 0)
+                            policy_count = int(usage.get("policy_count") or 0)
+                            analytics_count = int(usage.get("analytics_count") or 0)
+                            agent_count = int(usage.get("agent_count") or 0)
+                            width = (
+                                0
+                                if max_activity <= 0
+                                else max(4, int((activity_count / max_activity) * 100))
+                            )
+                            account_parts.append(
+                                textwrap.dedent(f"""
+                                <div class="supportai-admin-user-card">
+                                    <div class="supportai-admin-user-name">{html.escape(usage_name)}</div>
+                                    <div class="supportai-admin-user-email">{html.escape(usage_email)}</div>
+                                    <div style="margin-top:8px; height:7px; background:rgba(148,163,184,.12); border-radius:999px; overflow:hidden;"><div style="height:100%; width:{width}%; border-radius:999px; background:linear-gradient(90deg,#4f46e5,#06b6d4);"></div></div>
+                                    <div style="margin-top:7px; color:#64748b; font-size:.60rem;">Total {activity_count} • Policy {policy_count} • Analytics {analytics_count} • Agent {agent_count}</div>
+                                </div>
+                            """)
+                            )
+                        st.html("".join(account_parts))
+            except Exception:
+                logger.exception("Failed to load SupportAI usage/activity.")
+                st.error(
+                    "Unable to load usage and activity right now. Create the SUPPORT_ACTIVITY_LOG table and try again."
+                )
+            finally:
+                activity_service.close()
+
+        st.markdown(
+            '<div class="ra-footer"><strong>SupportAI</strong> • Administrator control center<span class="ra-footer-credit">Governed • Traceable • Snowflake Native</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    admin_service.close()
 
 
 def run_app(
@@ -4157,21 +5800,47 @@ def run_app(
         unsafe_allow_html=True,
     )
 
-    # Single icon toggle beside the native Streamlit toolbar.
+    # ---------------------------------------------------------
+    # Authentication gate
+    # ---------------------------------------------------------
+    initialize_auth_state()
+
+    if not render_auth_screen(controller, theme):
+        return
+
+    # Theme toggle is part of the authenticated workspace only. Keeping it out
+    # of the login screen prevents it from contributing extra viewport height.
     with st.container(key="supportai_theme_toggle"):
         next_icon = "☀" if theme == "dark" else "◐"
         toggle_clicked = st.button(
             next_icon,
             key="supportai_theme_button",
-            help="Switch to the light workspace theme."
-            if theme == "dark"
-            else "Switch to the dark workspace theme.",
+            help=(
+                "Switch to the light workspace theme."
+                if theme == "dark"
+                else "Switch to the dark workspace theme."
+            ),
             type="secondary",
         )
 
     if toggle_clicked:
         st.session_state["supportai_theme"] = "light" if theme == "dark" else "dark"
         st.rerun()
+
+    # ---------------------------------------------------------
+    # Role-based workspace routing
+    # ---------------------------------------------------------
+
+    authenticated_user = st.session_state.get("supportai_user") or {}
+    authenticated_role = str(authenticated_user.get("role") or "USER").strip().upper()
+
+    # ADMIN → Admin Dashboard
+    if authenticated_role == "ADMIN":
+        render_admin_dashboard(controller, theme)
+        return
+
+    # USER → Existing SupportAI workspace
+    render_authenticated_header(controller, theme)
 
     render_welcome_animation()
 
@@ -4240,29 +5909,10 @@ def run_app(
     )
 
     # =========================================================
-    # MAIN NAVIGATION
+    # MAIN WORKSPACE
     # =========================================================
 
-    main_tab, management_tab = st.tabs(
-        [
-            "✦ SupportAI",
-            "📚 Document Management",
-        ]
-    )
-
-    # =========================================================
-    # MAIN TAB
-    # =========================================================
-
-    with main_tab:
-        _render_support_ai_fragment(controller)
-
-    # =========================================================
-    # DOCUMENT MANAGEMENT TAB
-    # =========================================================
-
-    with management_tab:
-        render_document_management(controller)
+    _render_support_ai_fragment(controller)
 
     # =========================================================
     # FOOTER

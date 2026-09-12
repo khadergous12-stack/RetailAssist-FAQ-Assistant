@@ -504,7 +504,22 @@ class SnowflakeRetriever:
                 terms.append(token)
         terms = terms[:8]
 
+        start = time.perf_counter()
+
+        logger.info(
+            "Keyword fallback retrieval started | candidate_limit=%s | "
+            "query_length=%s | term_count=%s | scoped=%s",
+            candidate_limit,
+            len(query.strip()),
+            len(terms),
+            bool(self._document_scope),
+        )
+
         if not terms:
+            logger.info(
+                "Keyword fallback retrieval skipped | reason=no_search_terms | duration=%.3fs",
+                time.perf_counter() - start,
+            )
             return []
 
         clauses = []
@@ -553,12 +568,12 @@ class SnowflakeRetriever:
         sql_parts.append(f"ORDER BY pc.CHUNK_INDEX LIMIT {int(candidate_limit)}")
         sql = " ".join(sql_parts)
 
-        start = time.perf_counter()
         try:
             rows = self.session.sql(sql).collect()
         except Exception:
             logger.exception(
-                "Keyword fallback retrieval failed | duration=%.3fs",
+                "Keyword fallback retrieval failed | term_count=%s | duration=%.3fs",
+                len(terms),
                 time.perf_counter() - start,
             )
             return []
@@ -589,8 +604,10 @@ class SnowflakeRetriever:
             )
 
         logger.info(
-            "Keyword fallback retrieval completed | candidates=%s | duration=%.3fs | scoped=%s",
+            "Keyword fallback retrieval completed | candidates=%s | "
+            "term_count=%s | duration=%.3fs | scoped=%s",
             len(results),
+            len(terms),
             time.perf_counter() - start,
             bool(self._document_scope),
         )
@@ -604,15 +621,20 @@ class SnowflakeRetriever:
         start_time = time.perf_counter()
 
         if not query or not query.strip():
-            logger.warning("Snowflake retrieval skipped because query was empty.")
+            logger.warning(
+                "Snowflake retrieval rejected | reason=empty_query | duration=%.3fs",
+                time.perf_counter() - start_time,
+            )
             return []
 
         limit = top_k if top_k is not None else self.top_k
 
         if limit <= 0:
             logger.warning(
-                "Snowflake retrieval skipped because top_k was invalid | top_k=%s",
+                "Snowflake retrieval rejected | reason=invalid_top_k | top_k=%s | "
+                "duration=%.3fs",
                 limit,
+                time.perf_counter() - start_time,
             )
             return []
 
@@ -622,9 +644,12 @@ class SnowflakeRetriever:
         candidate_limit = max(20, limit * 4)
 
         logger.info(
-            "Snowflake retrieval started | top_k=%s | candidate_limit=%s",
+            "Snowflake retrieval started | top_k=%s | candidate_limit=%s | "
+            "query_length=%s | scoped=%s",
             limit,
             candidate_limit,
+            len(query.strip()),
+            bool(self._document_scope),
         )
 
         try:
@@ -679,7 +704,8 @@ class SnowflakeRetriever:
 
             if not candidates:
                 logger.warning(
-                    "Snowflake retrieval completed with no candidates | duration=%.3fs",
+                    "Snowflake retrieval completed with no candidates | "
+                    "reason=no_retrieval_results | duration=%.3fs",
                     time.perf_counter() - start_time,
                 )
                 return []

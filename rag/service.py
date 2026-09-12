@@ -187,15 +187,6 @@ class RAGService:
 
     # These are intent labels, not document names or policy rules.  They are
     # deliberately generic so the solution works with future documents.
-    BROAD_POLICY_PATTERNS = (
-        r"\bwhat does (?:our|the) .+ policy say\b",
-        r"\bwhat is (?:our|the) .+ policy\b",
-        r"\btell me about (?:our|the) .+ policy\b",
-        r"\bexplain (?:our|the) .+ policy\b",
-        r"\bwhat are (?:our|the) .+ policy rules\b",
-        r"\boverview of (?:our|the) .+ policy\b",
-    )
-
     INTENT_PATTERNS = {
         "duration": (
             r"\bhow long\b",
@@ -306,9 +297,11 @@ class RAGService:
         pipeline_start = time.perf_counter()
 
         logger.info(
-            "RAG request started | top_k=%s | question_length=%s",
+            "RAG request started | top_k=%s | question_length=%s | retriever=%s | generator=%s",
             top_k,
             len(question),
+            type(self.retriever).__name__,
+            type(self.generator).__name__,
         )
 
         # --------------------------------------------------------------
@@ -318,12 +311,9 @@ class RAGService:
         logger.info("RAG retrieval started.")
 
         try:
-            retrieval_top_k = (
-                max(top_k, 8) if self._is_broad_policy_question(question) else top_k
-            )
             retrieved = self.retriever.retrieve(
                 query=question,
-                top_k=retrieval_top_k,
+                top_k=top_k,
             )
 
             # Targeted query expansion for ambiguous cross-domain wording.
@@ -350,6 +340,11 @@ class RAGService:
                 supplemental_query = f"{question} change shipping address after dispatch parcel truck shipment"
 
             if supplemental_query:
+                supplemental_start = time.perf_counter()
+                logger.info(
+                    "Supplemental retrieval started | top_k=%s",
+                    max(top_k, 8),
+                )
                 try:
                     supplemental = self.retriever.retrieve(
                         query=supplemental_query,
@@ -374,12 +369,15 @@ class RAGService:
                             retrieved.append(chunk)
                             seen.add(key)
                     logger.info(
-                        "Supplemental retrieval completed | added=%s",
+                        "Supplemental retrieval completed | added=%s | total_candidates=%s | duration=%.3fs",
                         len(retrieved) - initial_count,
+                        len(retrieved),
+                        time.perf_counter() - supplemental_start,
                     )
                 except Exception:
                     logger.exception(
-                        "Supplemental retrieval failed; continuing with primary results."
+                        "Supplemental retrieval failed | duration=%.3fs | continuing_with_primary=true",
+                        time.perf_counter() - supplemental_start,
                     )
 
         except Exception:
@@ -400,8 +398,9 @@ class RAGService:
 
         if retrieval_elapsed >= 10.0:
             logger.warning(
-                "Slow retrieval detected | duration=%.3fs",
+                "Slow retrieval detected | duration=%.3fs | candidates=%s",
                 retrieval_elapsed,
+                len(retrieved),
             )
 
         if not retrieved:
@@ -436,8 +435,9 @@ class RAGService:
         filtering_elapsed = time.perf_counter() - filtering_start
 
         logger.info(
-            "Evidence filtering completed | accepted=%s | duration=%.3fs",
+            "Evidence filtering completed | accepted=%s | rejected=%s | duration=%.3fs",
             len(evidence),
+            max(0, len(retrieved) - len(evidence)),
             filtering_elapsed,
         )
 
@@ -451,6 +451,14 @@ class RAGService:
                 total_elapsed,
             )
             return self._refusal_response()
+
+        if filtering_elapsed >= 10.0:
+            logger.warning(
+                "Slow evidence filtering detected | duration=%.3fs | candidates=%s | accepted=%s",
+                filtering_elapsed,
+                len(retrieved),
+                len(evidence),
+            )
 
         # --------------------------------------------------------------
         # Prompt construction
@@ -519,7 +527,8 @@ class RAGService:
         if self._is_refusal(answer):
             total_elapsed = time.perf_counter() - pipeline_start
             logger.info(
-                "Generator returned a refusal | total_duration=%.3fs",
+                "Generator returned a refusal | evidence=%s | total_duration=%.3fs",
+                len(evidence),
                 total_elapsed,
             )
             return self._refusal_response()
@@ -642,11 +651,6 @@ class RAGService:
     # ------------------------------------------------------------------
     # Intent detection
     # ------------------------------------------------------------------
-
-    @classmethod
-    def _is_broad_policy_question(cls, text: str) -> bool:
-        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
-        return any(re.search(pattern, value) for pattern in cls.BROAD_POLICY_PATTERNS)
 
     @classmethod
     def _intents(cls, text: str) -> set[str]:
@@ -1420,7 +1424,6 @@ class RAGService:
         # Keep a small amount of supporting evidence
         # --------------------------------------------------------------
         selected = []
-        evidence_limit = cls.MAX_EVIDENCE
 
         # --------------------------------------------------------------
         # Compound-intent evidence selection
@@ -1441,7 +1444,7 @@ class RAGService:
         def add_chunk(chunk):
             if chunk in selected:
                 return
-            if len(selected) < evidence_limit:
+            if len(selected) < cls.MAX_EVIDENCE:
                 selected.append(chunk)
 
         # First pass: satisfy explicit query intents.
@@ -1469,18 +1472,18 @@ class RAGService:
                     add_chunk(chunk)
                     break
 
-            if len(selected) >= evidence_limit:
+            if len(selected) >= cls.MAX_EVIDENCE:
                 break
 
         # Second pass: fill remaining slots with strongest evidence.
-        if len(selected) < evidence_limit:
+        if len(selected) < cls.MAX_EVIDENCE:
             for score, _, chunk in scored:
                 if score < best_score - 5.0:
                     continue
 
                 add_chunk(chunk)
 
-                if len(selected) >= evidence_limit:
+                if len(selected) >= cls.MAX_EVIDENCE:
                     break
 
         return selected

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.controller import RetailAssistController
+
 from rag.service import RAGService
+
 from config.settings import load_settings
+
 from config.logging_config import setup_logging
 
 
@@ -34,42 +38,54 @@ def create_controller() -> RetailAssistController:
     The generation provider is selected through centralized settings
     and created by the provider factory.
     """
-    logger.info("Starting application controller initialization.")
+    start = time.perf_counter()
+    logger.info("Application controller initialization started.")
 
     try:
         settings = load_settings()
-
         logger.info(
-            "Application settings loaded. Mode=%s, Provider=%s",
+            "Application settings loaded | mode=%s | provider=%s",
             settings.retail_assist_mode,
             settings.default_ai_provider,
         )
 
         mode = settings.retail_assist_mode
-
         document_store = None
         session = None
 
         if mode == "SNOWFLAKE":
-            logger.info("Initializing Snowflake mode.")
+            logger.info("Snowflake application mode initialization started.")
 
             from providers.factory import create_generator
             from providers.snowflake.connection import create_snowflake_session
             from providers.snowflake.retriever import SnowflakeRetriever
             from providers.snowflake.document_store import DocumentStore
 
-            logger.info("Connecting to Snowflake.")
-            session = create_snowflake_session()
-            logger.info("Snowflake connection established successfully.")
+            connection_start = time.perf_counter()
+            logger.info("Snowflake connection started.")
 
-            logger.info("Initializing Snowflake retriever.")
+            session = create_snowflake_session()
+
+            logger.info(
+                "Snowflake connection established | duration=%.3fs",
+                time.perf_counter() - connection_start,
+            )
+
+            retriever_start = time.perf_counter()
+            logger.info("Snowflake retriever initialization started.")
+
             retriever = SnowflakeRetriever(
                 session=session,
             )
-            logger.info("Snowflake retriever initialized.")
 
             logger.info(
-                "Initializing AI generator. Provider=%s",
+                "Snowflake retriever initialized | duration=%.3fs",
+                time.perf_counter() - retriever_start,
+            )
+
+            generator_start = time.perf_counter()
+            logger.info(
+                "AI generator initialization started | provider=%s",
                 settings.default_ai_provider,
             )
 
@@ -79,16 +95,26 @@ def create_controller() -> RetailAssistController:
                 settings=settings,
             )
 
-            logger.info("AI generator initialized successfully.")
+            logger.info(
+                "AI generator initialized | provider=%s | duration=%.3fs",
+                settings.default_ai_provider,
+                time.perf_counter() - generator_start,
+            )
 
-            logger.info("Initializing document store.")
+            document_store_start = time.perf_counter()
+            logger.info("Document store initialization started.")
+
             document_store = DocumentStore(
                 session=session,
             )
-            logger.info("Document store initialized successfully.")
+
+            logger.info(
+                "Document store initialized | duration=%.3fs",
+                time.perf_counter() - document_store_start,
+            )
 
         elif mode == "DEMO":
-            logger.info("Initializing DEMO mode.")
+            logger.info("Demo application mode initialization started.")
 
             from app.demo_providers import DemoGenerator, DemoRetriever
 
@@ -99,32 +125,55 @@ def create_controller() -> RetailAssistController:
 
         else:
             logger.error(
-                "Invalid RETAIL_ASSIST_MODE received: %s",
+                "Application initialization rejected | reason=invalid_mode | mode=%s | duration=%.3fs",
                 mode,
+                time.perf_counter() - start,
             )
             raise ValueError("Invalid RETAIL_ASSIST_MODE. Use 'DEMO' or 'SNOWFLAKE'.")
 
-        logger.info("Initializing RAG service.")
+        rag_start = time.perf_counter()
+        logger.info("RAG service initialization started.")
 
         rag_service = RAGService(
             retriever=retriever,
             generator=generator,
         )
 
-        logger.info("RAG service initialized successfully.")
+        logger.info(
+            "RAG service initialized | duration=%.3fs",
+            time.perf_counter() - rag_start,
+        )
 
+        controller_start = time.perf_counter()
         controller = RetailAssistController(
             rag_service=rag_service,
             document_store=document_store,
             session=session,
         )
 
-        logger.info("Application controller initialized successfully.")
+        logger.info(
+            "Application controller initialized | duration=%.3fs | total_duration=%.3fs",
+            time.perf_counter() - controller_start,
+            time.perf_counter() - start,
+        )
+
+        total_duration = time.perf_counter() - start
+
+        if total_duration >= 10:
+            logger.warning(
+                "Slow application controller initialization | mode=%s | duration=%.3fs",
+                mode,
+                total_duration,
+            )
 
         return controller
 
-    except Exception:
-        logger.exception("Failed to initialize application controller.")
+    except Exception as exc:
+        logger.exception(
+            "Application controller initialization failed | exception=%s | duration=%.3fs",
+            type(exc).__name__,
+            time.perf_counter() - start,
+        )
         raise
 
 
@@ -136,7 +185,8 @@ from app.ui import run_app
 
 
 if __name__ == "__main__":
-    logger.info("Starting Support AI application.")
+    startup_start = time.perf_counter()
+    logger.info("Support AI application startup started.")
 
     try:
         # Streamlit reruns this script whenever widgets change. Keep the
@@ -148,13 +198,24 @@ if __name__ == "__main__":
             logger.info("Creating Support AI controller for new Streamlit session.")
             st.session_state.supportai_controller = create_controller()
         else:
-            logger.info("Reusing existing Support AI controller from Streamlit session state.")
+            logger.info(
+                "Reusing existing Support AI controller from Streamlit session state."
+            )
 
         controller = st.session_state.supportai_controller
 
         logger.info("Starting Streamlit UI.")
         run_app(controller)
 
-    except Exception:
-        logger.exception("Application startup failed.")
+        logger.info(
+            "Support AI application run completed | duration=%.3fs",
+            time.perf_counter() - startup_start,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Application startup failed | exception=%s | duration=%.3fs",
+            type(exc).__name__,
+            time.perf_counter() - startup_start,
+        )
         raise
