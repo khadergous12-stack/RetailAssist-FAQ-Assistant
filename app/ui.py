@@ -4495,8 +4495,19 @@ def render_user_login_form(controller: RetailAssistController) -> None:
     try:
         user = auth.login(email=email, password=password)
         if user is None:
-            if getattr(auth, "last_login_status", "") == "inactive":
+            status = getattr(auth, "last_login_status", "")
+            if status == "inactive":
                 st.error("This account is inactive. Please contact an administrator.")
+            elif status == "password_reset_pending_verification":
+                st.warning(
+                    "Your password reset has been completed, but an administrator must "
+                    "verify the reset before you can sign in with the new password."
+                )
+            elif status == "password_reset_rejected":
+                st.error(
+                    "Your latest password reset was rejected by an administrator. "
+                    "Please request a new password reset link."
+                )
             else:
                 st.error("Invalid email or password.")
             return
@@ -4554,10 +4565,130 @@ def render_admin_login_form(controller: RetailAssistController) -> None:
         _safe_auth_close(auth)
 
 
+def _get_password_reset_query() -> tuple[str, str]:
+    """Read reset identifiers from the emailed Streamlit query string."""
+    try:
+        reset_id = str(st.query_params.get("reset_id") or "").strip()
+        token = str(st.query_params.get("token") or "").strip()
+    except Exception:
+        return "", ""
+    return reset_id, token
+
+
+def _clear_password_reset_query() -> None:
+    """Remove password-reset credentials from the browser URL."""
+    try:
+        if "reset_id" in st.query_params:
+            del st.query_params["reset_id"]
+        if "token" in st.query_params:
+            del st.query_params["token"]
+    except Exception:
+        logger.debug("Unable to clear password-reset query parameters.")
+
+
+def render_password_reset_form(
+    controller: RetailAssistController,
+    reset_id: str,
+    token: str,
+) -> None:
+    """Render the password form reached from a secure emailed reset link."""
+    st.markdown(
+        '<div class="supportai-auth-form-copy">Create a new password using the secure link sent to your registered email address. The link is temporary and can only be used once.</div>',
+        unsafe_allow_html=True,
+    )
+
+    auth = _auth_service(controller)
+    token_valid = False
+    try:
+        token_valid = bool(
+            auth.validate_password_reset_token(
+                reset_id=reset_id,
+                token=token,
+            )
+        )
+    except ValueError as exc:
+        st.error(str(exc))
+    except Exception:
+        logger.exception(
+            "Failed to validate password reset token | reset_id=%s", reset_id
+        )
+        st.error("This password-reset link could not be validated.")
+    finally:
+        _safe_auth_close(auth)
+
+    if not token_valid:
+        st.info(
+            "Please request a new password-reset link if this link has expired or was already used."
+        )
+        if st.button(
+            "Request a New Reset Link",
+            key="supportai_reset_request_new_link",
+            type="primary",
+        ):
+            _clear_password_reset_query()
+            st.session_state["supportai_auth_screen"] = "forgot_password"
+            st.rerun()
+        return
+
+    with st.form("supportai_password_reset_form", clear_on_submit=False):
+        new_password = st.text_input(
+            "New password",
+            type="password",
+            placeholder="At least 8 characters",
+            key="supportai_password_reset_new_password",
+        )
+        confirm_password = st.text_input(
+            "Confirm new password",
+            type="password",
+            placeholder="Re-enter your new password",
+            key="supportai_password_reset_confirm_password",
+        )
+        submitted = st.form_submit_button(
+            "Create New Password",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submitted:
+        return
+
+    if not new_password or not confirm_password:
+        st.error("Please enter and confirm your new password.")
+        return
+
+    if new_password != confirm_password:
+        st.error("Passwords do not match.")
+        return
+
+    auth = _auth_service(controller)
+    try:
+        auth.complete_password_reset(
+            reset_id=reset_id,
+            token=token,
+            new_password=new_password,
+        )
+        _clear_password_reset_query()
+        st.session_state["supportai_auth_screen"] = "login"
+        st.session_state["supportai_auth_notice"] = (
+            "Your password has been reset successfully. An administrator must verify "
+            "the reset before you can sign in with the new password."
+        )
+        st.rerun()
+    except ValueError as exc:
+        st.error(str(exc))
+    except Exception:
+        logger.exception("Failed to complete password reset | reset_id=%s", reset_id)
+        st.error(
+            "Unable to complete this password reset. Please request a new reset link if needed."
+        )
+    finally:
+        _safe_auth_close(auth)
+
+
 def render_forgot_password_form(controller: RetailAssistController) -> None:
     """Render the secure password-reset request form."""
     st.markdown(
-        '<div class="supportai-auth-form-copy">Enter your account email. If the account is eligible, a password-reset request will be sent to the administrator for verification.</div>',
+        '<div class="supportai-auth-form-copy">Enter your registered account email. If the account is eligible, SupportAI will email you a secure, time-limited reset link. Your password is never sent by email.</div>',
         unsafe_allow_html=True,
     )
 
@@ -4568,7 +4699,7 @@ def render_forgot_password_form(controller: RetailAssistController) -> None:
             key="supportai_forgot_password_email",
         )
         submitted = st.form_submit_button(
-            "Request Password Reset",
+            "Email Me a Reset Link",
             type="primary",
             use_container_width=True,
         )
@@ -4576,19 +4707,24 @@ def render_forgot_password_form(controller: RetailAssistController) -> None:
     if not submitted:
         return
 
+    if not email.strip():
+        st.error("Please enter your registered email address.")
+        return
+
     auth = _auth_service(controller)
     try:
         auth.request_password_reset(email=email)
         st.session_state["supportai_auth_reset_notice"] = (
-            "If this account is eligible, a password-reset request has been submitted. "
-            "Please contact the administrator to complete the reset."
+            "If this account is eligible, a secure reset link has been sent to the "
+            "registered email address. Check your inbox and follow the link to create "
+            "your new password."
         )
         st.rerun()
     except ValueError as exc:
         st.error(str(exc))
     except Exception:
         logger.exception("SupportAI password reset request failed.")
-        st.error("Unable to submit the reset request right now. Please try again.")
+        st.error("Unable to send the reset link right now. Please try again.")
     finally:
         _safe_auth_close(auth)
 
@@ -4650,19 +4786,31 @@ def render_user_signup_form(controller: RetailAssistController) -> None:
 
 
 def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
-    """Render the fixed SupportAI authentication experience."""
+    """Render the SupportAI authentication and secure password-reset experience."""
     initialize_auth_state()
+
+    reset_id, reset_token = _get_password_reset_query()
+    has_reset_link = bool(reset_id and reset_token)
+
+    if has_reset_link and st.session_state.get("supportai_authenticated"):
+        st.session_state["supportai_authenticated"] = False
+        st.session_state["supportai_user"] = None
+        st.session_state["supportai_auth_screen"] = "password_reset"
+
+    if has_reset_link:
+        st.session_state["supportai_auth_screen"] = "password_reset"
+
     if st.session_state.get("supportai_authenticated"):
         return True
 
     inject_auth_styles(theme)
     notice = st.session_state.pop("supportai_auth_notice", None)
-    admin_mode = st.session_state.get("supportai_auth_screen") == "admin"
-    reset_mode = st.session_state.get("supportai_auth_screen") == "forgot_password"
+    auth_screen = st.session_state.get("supportai_auth_screen")
+    admin_mode = auth_screen == "admin"
+    reset_mode = auth_screen == "forgot_password"
+    password_reset_mode = auth_screen == "password_reset"
     reset_notice = st.session_state.pop("supportai_auth_reset_notice", None)
 
-    # Everything is inside one real Streamlit container so the viewport-fit CSS
-    # controls the complete authentication page instead of only its brand row.
     with st.container(key="supportai_auth_root", border=False):
         st.markdown(
             """
@@ -4687,26 +4835,26 @@ def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
                     ("▦", "Operational visibility", "Governed support intelligence."),
                     ("✓", "Secure access", "Role verified against Snowflake."),
                 ]
-                footer = ""
-            elif reset_mode:
+            elif reset_mode or password_reset_mode:
                 title = "Get back to<br>your workspace."
-                copy = (
-                    "Request a secure password reset without exposing account details."
-                )
+                copy = "Recover your SupportAI account securely using email verification and administrator review."
                 features = [
-                    ("✓", "Secure request", "Account existence is not disclosed."),
+                    (
+                        "✓",
+                        "Secure email link",
+                        "The reset token is temporary and one-time.",
+                    ),
                     (
                         "♙",
                         "Administrator verified",
-                        "Reset requests are reviewed before completion.",
+                        "Completed resets require admin approval before sign-in.",
                     ),
                     (
                         "✦",
                         "Protected access",
-                        "Your existing account and role remain unchanged.",
+                        "Passwords are hashed and never sent by email.",
                     ),
                 ]
-                footer = ""
             else:
                 title = "Support work.<br>Made intelligent."
                 copy = "One secure workspace for policy-grounded answers, live support-ticket intelligence and Cortex Agent orchestration."
@@ -4719,13 +4867,11 @@ def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
                     ),
                     ("✧", "Cortex Agent", "Route questions across trusted tools."),
                 ]
-                footer = ""
 
             feature_html = "".join(
                 f"""<div class="supportai-auth-feature"><div class="supportai-auth-feature-icon">{icon}</div><div><div class="supportai-auth-feature-title">{heading}</div><div class="supportai-auth-feature-copy">{desc}</div></div></div>"""
                 for icon, heading, desc in features
             )
-
             promo_html = textwrap.dedent(
                 f"""
                 <div class="supportai-auth-promo">
@@ -4735,7 +4881,6 @@ def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
                         <div class="supportai-auth-promo-copy">{copy}</div>
                         <div class="supportai-auth-features">{feature_html}</div>
                     </div>
-                    {f'<div class="supportai-auth-promo-footer">{html.escape(footer)}</div>' if footer else ""}
                 </div>
                 """
             ).strip()
@@ -4761,11 +4906,27 @@ def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
                     ):
                         st.session_state["supportai_auth_screen"] = "login"
                         st.rerun()
+                elif password_reset_mode:
+                    st.markdown(
+                        '<div class="supportai-auth-admin-badge">✦ Secure password reset</div>'
+                        '<div class="supportai-auth-form-title">Create a new password</div>'
+                        '<div class="supportai-auth-form-copy">Your reset link was delivered to your registered email address.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    render_password_reset_form(controller, reset_id, reset_token)
+                    if st.button(
+                        "← Back to sign in",
+                        key="supportai_back_from_password_reset",
+                        use_container_width=False,
+                    ):
+                        _clear_password_reset_query()
+                        st.session_state["supportai_auth_screen"] = "login"
+                        st.rerun()
                 elif reset_mode:
                     st.markdown(
                         '<div class="supportai-auth-admin-badge">✦ Password recovery</div>'
                         '<div class="supportai-auth-form-title">Forgot your password?</div>'
-                        '<div class="supportai-auth-form-copy">Request a secure reset for your SupportAI account.</div>',
+                        '<div class="supportai-auth-form-copy">We will send a secure reset link directly to your registered email.</div>',
                         unsafe_allow_html=True,
                     )
                     if reset_notice:
@@ -4827,11 +4988,6 @@ def render_auth_screen(controller: RetailAssistController, theme: str) -> bool:
                         '<div class="supportai-auth-admin-link">Administrator access is restricted and provisioned separately.</div>',
                         unsafe_allow_html=True,
                     )
-
-        st.markdown(
-            '<div class="supportai-auth-footer">SupportAI • Secure customer-support intelligence</div>',
-            unsafe_allow_html=True,
-        )
 
     return False
 
@@ -5373,8 +5529,8 @@ def render_admin_dashboard(
                     textwrap.dedent(f"""
                     <div class="supportai-admin-recovery">
                         <div>
-                            <div class="supportai-admin-card-title">{len(reset_requests)} pending password reset request(s)</div>
-                            <div class="supportai-admin-card-copy">Open Accounts to verify and complete the waiting requests.</div>
+                            <div class="supportai-admin-card-title">{len(reset_requests)} password reset(s) awaiting verification</div>
+                            <div class="supportai-admin-card-copy">Users have completed their emailed password reset. Review each request and approve or reject it.</div>
                         </div>
                         <span class="supportai-admin-recovery-badge">● Action required</span>
                     </div>
@@ -5382,7 +5538,7 @@ def render_admin_dashboard(
                 )
             else:
                 st.html(
-                    '<div class="supportai-admin-empty">No pending password-reset requests. Workspace recovery queue is clear.</div>'
+                    '<div class="supportai-admin-empty">No completed password-reset requests are awaiting verification. Workspace recovery queue is clear.</div>'
                 )
 
         with accounts_tab:
@@ -5402,70 +5558,84 @@ def render_admin_dashboard(
                 _safe_auth_close(reset_service)
 
             if reset_requests:
+                authenticated_admin = st.session_state.get("supportai_user") or {}
+                admin_user_id = str(authenticated_admin.get("user_id") or "").strip()
+
                 for reset_request in reset_requests:
                     reset_id = str(reset_request.get("reset_id") or "")
                     reset_name = str(reset_request.get("name") or "User")
                     reset_email = str(reset_request.get("email") or "")
                     requested_at = str(reset_request.get("requested_at") or "—")
+                    completed_at = str(reset_request.get("completed_at") or "—")
                     user_status = str(
                         reset_request.get("user_status") or "ACTIVE"
                     ).upper()
+
                     st.html(
                         textwrap.dedent(f"""
                         <div class="supportai-admin-user-card">
                             <div class="supportai-admin-user-name">{html.escape(reset_name)}</div>
                             <div class="supportai-admin-user-email">{html.escape(reset_email)}</div>
-                            <div style="margin-top:7px; color:#94a3b8; font-size:.60rem;">Requested {html.escape(requested_at)} • Account {html.escape(user_status)}</div>
+                            <div style="margin-top:7px; color:#94a3b8; font-size:.60rem;">
+                                Requested {html.escape(requested_at)} • Password changed {html.escape(completed_at)} • Account {html.escape(user_status)}
+                            </div>
                         </div>
                     """)
                     )
-                    with st.form(
-                        f"supportai_reset_form_{reset_id}", clear_on_submit=True
-                    ):
-                        password_cols = st.columns(2, gap="small")
-                        with password_cols[0]:
-                            new_password = st.text_input(
-                                "New password",
-                                type="password",
-                                placeholder="At least 8 characters",
-                                key=f"supportai_reset_password_{reset_id}",
-                            )
-                        with password_cols[1]:
-                            confirm_password = st.text_input(
-                                "Confirm password",
-                                type="password",
-                                placeholder="Re-enter password",
-                                key=f"supportai_reset_confirm_{reset_id}",
-                            )
-                        reset_submitted = st.form_submit_button(
-                            "Complete Password Reset",
+
+                    approve_col, reject_col = st.columns(2, gap="small")
+                    with approve_col:
+                        approve_clicked = st.button(
+                            "Approve Reset",
+                            key=f"supportai_approve_reset_{reset_id}",
                             type="primary",
                             use_container_width=True,
                         )
-                    if reset_submitted:
-                        if new_password != confirm_password:
-                            st.error("Passwords do not match.")
-                        else:
-                            reset_service = _auth_service(controller)
-                            try:
-                                reset_service.complete_password_reset(
-                                    reset_id=reset_id, new_password=new_password
+                    with reject_col:
+                        reject_clicked = st.button(
+                            "Reject Reset",
+                            key=f"supportai_reject_reset_{reset_id}",
+                            use_container_width=True,
+                        )
+
+                    if approve_clicked or reject_clicked:
+                        if not admin_user_id:
+                            st.error("Unable to verify the administrator session.")
+                            continue
+
+                        reset_service = _auth_service(controller)
+                        try:
+                            if approve_clicked:
+                                reset_service.approve_password_reset(
+                                    reset_id=reset_id,
+                                    admin_user_id=admin_user_id,
                                 )
-                                st.success("Password reset completed successfully.")
-                                st.rerun()
-                            except ValueError as exc:
-                                st.error(str(exc))
-                            except Exception:
-                                logger.exception(
-                                    "Failed to complete password reset | reset_id=%s",
-                                    reset_id,
+                                st.success(
+                                    f"Password reset approved for {reset_email}. The user can now sign in with the new password."
                                 )
-                                st.error("Unable to complete this password reset.")
-                            finally:
-                                _safe_auth_close(reset_service)
+                            else:
+                                reset_service.reject_password_reset(
+                                    reset_id=reset_id,
+                                    admin_user_id=admin_user_id,
+                                )
+                                st.warning(
+                                    f"Password reset rejected for {reset_email}. The user cannot sign in with that reset password."
+                                )
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
+                        except Exception:
+                            logger.exception(
+                                "Failed to verify password reset | reset_id=%s | action=%s",
+                                reset_id,
+                                "APPROVE" if approve_clicked else "REJECT",
+                            )
+                            st.error("Unable to verify this password reset right now.")
+                        finally:
+                            _safe_auth_close(reset_service)
             else:
                 st.html(
-                    '<div class="supportai-admin-empty">No pending password-reset requests.</div>'
+                    '<div class="supportai-admin-empty">No completed password-reset requests are awaiting verification.</div>'
                 )
 
             st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
