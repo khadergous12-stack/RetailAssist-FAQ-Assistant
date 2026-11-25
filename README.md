@@ -1,8 +1,34 @@
 \# SupportAI — RetailAssist FAQ Assistant v2
 
-SupportAI is an AI-powered customer-support assistant built with **\*\*Python, Streamlit, Snowflake Cortex, RAG, Cortex Analyst, and Cortex Agent\*\***.
+## AI-Powered FAQ Assistant using RAG and Snowflake
 
-The application combines:
+SupportAI is an AI-powered FAQ assistant designed to provide accurate, grounded answers from a controlled knowledge base.
+
+The application combines **Retrieval-Augmented Generation (RAG)** with **Snowflake** to retrieve relevant support information and generate answers based only on available policy and FAQ content.
+
+SupportAI also provides document management capabilities, allowing users to upload support documents, process them into searchable chunks, index them, retrieve relevant evidence, and use that evidence to generate grounded responses.
+
+---
+
+## Overview
+
+Traditional FAQ systems generally depend on keyword matching or manually maintained question-and-answer pairs. This can make them difficult to maintain and less flexible when users ask questions in different ways.
+
+SupportAI addresses this by using a Retrieval-Augmented Generation pipeline.
+
+Instead of asking the language model to answer from its general knowledge, SupportAI:
+
+1. Accepts a user's question.
+2. Searches the available knowledge base.
+3. Retrieves relevant document chunks.
+4. Applies relevance and intent-based filtering.
+5. Uses the filtered evidence as context.
+6. Generates a grounded answer.
+7. Returns the answer along with supporting evidence.
+
+This approach helps reduce irrelevant answers and keeps responses aligned with the organization's support documentation.
+
+---
 
 \- Grounded policy/FAQ question answering
 
@@ -1759,89 +1785,55 @@ RetailAssist FAQ Assistant v2/
 │
 
 ├── app/
-
-│   ├── main.py
-
-│   ├── ui.py
-
-│   ├── controller.py
-
-│   ├── demo\_main.py
-
-│   ├── demo\_providers.py
-
-│   └── \_\_init\_\_.py
-
-│
+│   ├── main.py
+│   ├── ui.py
+│   ├── controller.py
+│   ├── demo_main.py
+│   ├── demo_providers.py
+│   └── __init__.py
 
 ├── config/
-
-│   ├── settings.py
-
-│   ├── logging\_config.py
-
-│   └── \_\_init\_\_.py
-
+│   ├── settings.py
+│   ├── logging_config.py
+│   └── __init__.py
 │
 
 ├── data/
-
-│   ├── support\_tickets.csv
-
-│   ├── generate\_support\_tickets.py
-
-│   ├── evaluation\_questions.csv
-
-│   ├── provider\_evaluation\_results.csv
-
-│   ├── provider\_evaluation\_summary.csv
-
-│   ├── payments\_faq.md
-
-│   ├── refunds\_faq.md
-
-│   ├── returns\_faq.md
-
-│   ├── shipping\_faq.md
-
-│   └── warranty\_faq.md
-
-│
+├── data/
+│   ├── support_tickets.csv
+│   ├── generate_support_tickets.py
+│   ├── evaluation_questions.csv
+│   ├── provider_evaluation_results.csv
+│   ├── provider_evaluation_summary.csv
+│   ├── payments_faq.md
+│   ├── refunds_faq.md
+│   ├── returns_faq.md
+│   ├── shipping_faq.md
+│   └── warranty_faq.md
 
 ├── evaluation/
-
-│   └── analyst\_questions.csv
-
+│   └── analyst_questions.csv
 │
 
 ├── providers/
-
-│   ├── factory.py
-
-│   ├── openai/
-
-│   │   └── generator.py
-
-│   └── snowflake/
-
-│       ├── connection.py
-
-│       ├── document\_store.py
-
-│       ├── generator.py
-
-│       └── retriever.py
-
+├── providers/
+│   ├── factory.py
+│   ├── openai/
+│   │   └── generator.py
+│   └── snowflake/
+│       ├── __init__.py
+│       ├── connection.py
+│       ├── document_store.py
+│       ├── generator.py
+│       └── retriever.py
 │
 
 ├── rag/
-
-│   ├── contracts.py
-
-│   ├── prompts.py
-
-│   └── service.py
-
+├── rag/
+│   ├── __init__.py
+│   ├── contracts.py
+│   ├── prompts.py
+│   └── service.py
 │
 
 ├── services/
@@ -1869,45 +1861,47 @@ RetailAssist FAQ Assistant v2/
 │
 
 ├── sql/
-
-│   ├── setup.sql
-
-│   ├── documents.sql
-
-│   ├── chunking.sql
-
-│   ├── search.sql
-
-│   ├── load\_support\_tickets.sql
-
-│   ├── semantic\_view\.sql
-
-│   ├── agent.sql
-
-│   ├── auth.sql
-
-│   ├── password\_reset.sql
-
-│   └── validation.sql
-
+├── sql/
+│   ├── setup.sql
+│   ├── foundation.sql
+│   ├── 02_seed.sql
+│   ├── documents.sql
+│   ├── chunking.sql
+│   ├── search.sql
+│   ├── load_support_tickets.sql
+│   ├── semantic_view.sql
+│   ├── agent.sql
+│   ├── auth.sql
+│   ├── password_reset.sql
+│   ├── validation.sql
+│   └── 05_validation.sql
 │
 
 ├── tests/
-
-│   ├── create\_admin.py
-
-│   ├── test\_admin\_service.py
-
-│   ├── test\_auth\_manual.py
-
-│   └── test\_contracts.py
-
-│
+├── tests/
+│   ├── create_admin.py
+│   ├── test_admin_service.py
+│   ├── test_auth_manual.py
+│   ├── test_contracts.py
+│   ├── test_document_store.py
+│   ├── test_evaluation.py
+│   ├── test_import_boundary.py
+│   ├── test_provider_selection.py
+│   ├── test_rag_service.py
+│   ├── test_snowflake_connection.py
+│   ├── test_snowflake_data.py
+│   ├── test_snowflake_generator.py
+│   └── test_snowflake_retriever.py
 
 ├── logs/
+│   └── supportai.log
 
-│   └── supportai.log
-
+├── .env.example
+├── .gitignore
+├── pytest.ini
+├── requirements.txt
+├── LICENSE
+└── README.md
 │
 
 ├── .env.example
