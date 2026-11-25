@@ -1,8 +1,12 @@
+import logging
 import os
+import time
 
 from snowflake.cortex import CompleteOptions, complete
 
 from providers.snowflake.connection import create_snowflake_session
+
+logger = logging.getLogger("supportai.snowflake_generator")
 
 
 class SnowflakeGenerator:
@@ -33,7 +37,16 @@ class SnowflakeGenerator:
         """
 
         if not prompt or not prompt.strip():
+            logger.warning("Generation rejected | reason=empty_prompt")
             raise ValueError("Prompt cannot be empty.")
+
+        started = time.perf_counter()
+        prompt_length = len(prompt)
+        logger.info(
+            "Snowflake Cortex generation started | model=%s | prompt_length=%s",
+            self.model,
+            prompt_length,
+        )
 
         options = CompleteOptions(
             {

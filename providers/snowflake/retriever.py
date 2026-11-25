@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
+import time
+
 from typing import Any
 
 from rag.contracts import RetrievedChunk
+
 from providers.snowflake.connection import create_snowflake_session
 
 
+logger = logging.getLogger(__name__)
+
+
 DOCUMENTS_TABLE = "RETAIL_ASSIST_DB.RETAIL_ASSIST.DOCUMENTS"
+DOCUMENT_CHUNKS_TABLE = "RETAIL_ASSIST_DB.RETAIL_ASSIST.DOCUMENT_CHUNKS"
+POLICY_CHUNKS_TABLE = "RETAIL_ASSIST_DB.RETAIL_ASSIST.POLICY_CHUNKS"
 
 
 class SnowflakeRetriever:
@@ -15,14 +25,17 @@ class SnowflakeRetriever:
     Cortex Search candidate retriever.
 
     This class intentionally does NOT decide that the first document wins and
-    it does NOT return every chunk from the first document.  Cortex Search
+    it does NOT return every chunk from the first document. Cortex Search
     returns a broad candidate pool; RAGService performs the final question-
     specific evidence selection.
 
     Lifecycle rules are still enforced here:
+
       * ACTIVE + INDEXED uploaded documents are allowed.
       * deleted/failed/processing uploaded documents are excluded.
       * legacy built-in rows that are not present in DOCUMENTS remain allowed.
+
+    Logging added here is diagnostic only. Retrieval behavior is unchanged.
     """
 
     def __init__(
@@ -31,9 +44,52 @@ class SnowflakeRetriever:
         search_service="RETAIL_ASSIST_DB.RETAIL_ASSIST.RETAIL_ASSIST_SEARCH",
         top_k=5,
     ):
-        self.session = session or create_snowflake_session()
-        self.search_service = search_service
-        self.top_k = top_k
+        init_start = time.perf_counter()
+
+        logger.info(
+            "Initializing Snowflake retriever | search_service=%s | default_top_k=%s",
+            search_service,
+            top_k,
+        )
+
+        try:
+            self.session = session or create_snowflake_session()
+            self.search_service = search_service
+            self.top_k = top_k
+            self._document_scope: set[str] | None = None
+
+            logger.info(
+                "Snowflake retriever initialized successfully | duration=%.3fs",
+                time.perf_counter() - init_start,
+            )
+        except Exception:
+            logger.exception(
+                "Snowflake retriever initialization failed | duration=%.3fs",
+                time.perf_counter() - init_start,
+            )
+            raise
+
+    def set_document_scope(
+        self,
+        document_ids: set[str] | list[str] | tuple[str, ...] | None,
+    ) -> None:
+        """Temporarily restrict retrieval to the newly uploaded document scope."""
+        if not document_ids:
+            self._document_scope = None
+            logger.info(
+                "Snowflake retrieval scope cleared; using complete knowledge base."
+            )
+            return
+
+        self._document_scope = {
+            str(document_id).strip()
+            for document_id in document_ids
+            if str(document_id).strip()
+        } or None
+        logger.info(
+            "Snowflake retrieval scope updated | document_count=%s",
+            len(self._document_scope or []),
+        )
 
     @staticmethod
     def _as_bool(value: Any) -> bool:
@@ -46,14 +102,18 @@ class SnowflakeRetriever:
     @staticmethod
     def _score(item: dict[str, Any]) -> float | None:
         scores = item.get("@scores") or item.get("scores") or {}
+
         for key in ("reranker_score", "cosine_similarity", "score"):
             value = scores.get(key)
+
             if value is not None:
                 try:
                     return float(value)
                 except (TypeError, ValueError):
                     pass
+
         value = item.get("score")
+
         try:
             return float(value) if value is not None else None
         except (TypeError, ValueError):
@@ -63,38 +123,76 @@ class SnowflakeRetriever:
     def _page_number(value: Any) -> int | None:
         if value is None or str(value).strip() == "":
             return None
+
         try:
             return int(value)
         except (TypeError, ValueError):
             return None
 
-    def _document_states(self, document_ids: set[str]) -> dict[str, dict[str, Any]]:
+    def _document_states(
+        self,
+        document_ids: set[str],
+    ) -> dict[str, dict[str, Any]]:
         if not document_ids:
+            logger.debug(
+                "Document state lookup skipped because no document IDs were supplied."
+            )
             return {}
+
+        start_time = time.perf_counter()
+
+        logger.info(
+            "Loading document lifecycle states | document_count=%s",
+            len(document_ids),
+        )
 
         ids = ", ".join(
             "'" + str(doc_id).replace("'", "''") + "'" for doc_id in document_ids
         )
 
-        rows = self.session.sql(
-            f"""
-            SELECT DOCUMENT_ID, ACTIVE, PROCESSING_STATUS
-            FROM {DOCUMENTS_TABLE}
-            WHERE DOCUMENT_ID IN ({ids})
-            """
-        ).collect()
+        try:
+            rows = self.session.sql(
+                f"""
+                SELECT DOCUMENT_ID, ACTIVE, PROCESSING_STATUS
+                FROM {DOCUMENTS_TABLE}
+                WHERE DOCUMENT_ID IN ({ids})
+                """
+            ).collect()
 
-        states: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            doc_id = str(row["DOCUMENT_ID"]).strip()
-            states[doc_id] = {
-                "known": True,
-                "active": self._as_bool(row["ACTIVE"]),
-                "status": str(row["PROCESSING_STATUS"] or "").upper(),
-            }
-        return states
+            elapsed = time.perf_counter() - start_time
 
-    def _search(self, query: str, candidate_limit: int) -> list[RetrievedChunk]:
+            states: dict[str, dict[str, Any]] = {}
+
+            for row in rows:
+                doc_id = str(row["DOCUMENT_ID"]).strip()
+
+                states[doc_id] = {
+                    "known": True,
+                    "active": self._as_bool(row["ACTIVE"]),
+                    "status": str(row["PROCESSING_STATUS"] or "").upper(),
+                }
+
+            logger.info(
+                "Document lifecycle lookup completed | matched=%s | duration=%.3fs",
+                len(states),
+                elapsed,
+            )
+
+            return states
+
+        except Exception:
+            logger.exception(
+                "Document lifecycle lookup failed | document_count=%s | duration=%.3fs",
+                len(document_ids),
+                time.perf_counter() - start_time,
+            )
+            raise
+
+    def _search(
+        self,
+        query: str,
+        candidate_limit: int,
+    ) -> list[RetrievedChunk]:
         request = {
             "query": query.strip(),
             "columns": [
@@ -113,7 +211,27 @@ class SnowflakeRetriever:
             "limit": candidate_limit,
         }
 
+        # When the UI has an active upload scope, constrain Cortex Search to
+        # those document IDs. Cortex Search supports attribute filters using
+        # @eq combined with @or; DOCUMENT_ID is a configured attribute.
+        if self._document_scope:
+            document_filters = [
+                {"@eq": {"DOCUMENT_ID": document_id}}
+                for document_id in sorted(self._document_scope)
+            ]
+            request["filter"] = (
+                document_filters[0]
+                if len(document_filters) == 1
+                else {"@or": document_filters}
+            )
+
+            logger.info(
+                "Applying upload-only retrieval filter | document_count=%s",
+                len(document_filters),
+            )
+
         request_json = json.dumps(request).replace("'", "''")
+
         sql = f"""
         SELECT SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
             '{self.search_service}',
@@ -121,94 +239,537 @@ class SnowflakeRetriever:
         ) AS SEARCH_RESULT
         """
 
-        rows = self.session.sql(sql).collect()
-        if not rows:
-            return []
+        start_time = time.perf_counter()
 
-        raw = rows[0]["SEARCH_RESULT"]
-        if isinstance(raw, str):
-            try:
-                result = json.loads(raw)
-            except json.JSONDecodeError:
+        logger.info(
+            "Snowflake Cortex Search started | candidate_limit=%s | query_length=%s",
+            candidate_limit,
+            len(query.strip()),
+        )
+
+        try:
+            rows = self.session.sql(sql).collect()
+
+            elapsed = time.perf_counter() - start_time
+
+            if not rows:
+                logger.warning(
+                    "Snowflake Cortex Search returned no rows | duration=%.3fs",
+                    elapsed,
+                )
                 return []
-        else:
-            result = raw
 
-        if not isinstance(result, dict):
+            raw = rows[0]["SEARCH_RESULT"]
+
+            if isinstance(raw, str):
+                try:
+                    result = json.loads(raw)
+                except json.JSONDecodeError:
+                    logger.error(
+                        "Snowflake Cortex Search returned invalid JSON | duration=%.3fs",
+                        elapsed,
+                    )
+                    return []
+            else:
+                result = raw
+
+            if not isinstance(result, dict):
+                logger.error(
+                    "Snowflake Cortex Search returned an unexpected result type: %s | duration=%.3fs",
+                    type(result).__name__,
+                    elapsed,
+                )
+                return []
+
+            raw_results = result.get("results", [])
+
+            if not isinstance(raw_results, list):
+                logger.error(
+                    "Snowflake Cortex Search returned a non-list results field | duration=%.3fs",
+                    elapsed,
+                )
+                return []
+
+            candidates: list[RetrievedChunk] = []
+
+            for item in raw_results:
+                if not isinstance(item, dict):
+                    continue
+
+                chunk_text = str(item.get("CHUNK_TEXT", "") or "").strip()
+
+                document_id = str(item.get("DOCUMENT_ID", "") or "").strip()
+
+                if not chunk_text or not document_id:
+                    continue
+
+                try:
+                    chunk_index = int(item.get("CHUNK_INDEX", 0) or 0)
+                except (TypeError, ValueError):
+                    chunk_index = 0
+
+                candidates.append(
+                    RetrievedChunk(
+                        chunk_id=str(item.get("CHUNK_ID", "") or ""),
+                        document_id=document_id,
+                        document_name=str(item.get("DOCUMENT_NAME", "") or ""),
+                        category=str(item.get("CATEGORY", "") or "").strip(),
+                        chunk_index=chunk_index,
+                        chunk_text=chunk_text,
+                        score=self._score(item),
+                        page_number=self._page_number(item.get("PAGE_NUMBER")),
+                        section_heading=str(item.get("SECTION_HEADING", "") or ""),
+                        source_type=str(item.get("SOURCE_TYPE", "") or ""),
+                    )
+                )
+
+            if elapsed > 10:
+                logger.warning(
+                    "Slow Snowflake Cortex Search detected | duration=%.3fs | candidates=%s",
+                    elapsed,
+                    len(candidates),
+                )
+            else:
+                logger.info(
+                    "Snowflake Cortex Search completed | candidates=%s | duration=%.3fs",
+                    len(candidates),
+                    elapsed,
+                )
+
+            return candidates
+
+        except Exception:
+            logger.exception(
+                "Snowflake Cortex Search failed | duration=%.3fs",
+                time.perf_counter() - start_time,
+            )
+            raise
+
+    @staticmethod
+    def _has_meaningful_query_overlap(
+        query: str,
+        candidates: list[RetrievedChunk],
+    ) -> bool:
+        """Return True when the scoped document actually looks relevant.
+
+        Cortex Search can still return a top result from a document even when
+        that document does not contain the answer.  In that case we allow a
+        transparent fallback to the existing knowledge base.
+        """
+        stop_words = {
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "can",
+            "could",
+            "would",
+            "will",
+            "do",
+            "does",
+            "did",
+            "my",
+            "i",
+            "me",
+            "we",
+            "you",
+            "your",
+            "our",
+            "this",
+            "that",
+            "what",
+            "when",
+            "where",
+            "who",
+            "whom",
+            "which",
+            "how",
+            "why",
+            "to",
+            "for",
+            "of",
+            "on",
+            "in",
+            "at",
+            "and",
+            "or",
+            "but",
+            "from",
+            "it",
+            "they",
+            "them",
+            "please",
+            "tell",
+        }
+
+        query_terms = {
+            token
+            for token in re.findall(r"[a-z0-9]+", query.lower())
+            if len(token) > 2 and token not in stop_words
+        }
+
+        if not query_terms:
+            return bool(candidates)
+
+        for chunk in candidates:
+            haystack = " ".join(
+                [
+                    str(chunk.document_name or ""),
+                    str(chunk.category or ""),
+                    str(chunk.section_heading or ""),
+                    str(chunk.chunk_text or ""),
+                ]
+            ).lower()
+            chunk_terms = {
+                token for token in re.findall(r"[a-z0-9]+", haystack) if len(token) > 2
+            }
+            if query_terms.intersection(chunk_terms):
+                return True
+
+        return False
+
+    def _keyword_search(
+        self,
+        query: str,
+        candidate_limit: int,
+    ) -> list[RetrievedChunk]:
+        """Fallback retrieval directly from active chunked knowledge.
+
+        This protects normal knowledge-base questions when Cortex Search's
+        semantic ranking does not surface an otherwise active document. The
+        lifecycle rules are still enforced: uploaded documents must be ACTIVE
+        and INDEXED; legacy rows without a DOCUMENTS record remain eligible.
+        When a one-question upload scope is present, the fallback is restricted
+        to that scope as well.
+        """
+        stop_words = {
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "can",
+            "could",
+            "would",
+            "will",
+            "do",
+            "does",
+            "did",
+            "my",
+            "i",
+            "me",
+            "we",
+            "you",
+            "your",
+            "our",
+            "this",
+            "that",
+            "what",
+            "when",
+            "where",
+            "who",
+            "whom",
+            "which",
+            "how",
+            "why",
+            "to",
+            "for",
+            "of",
+            "on",
+            "in",
+            "at",
+            "and",
+            "or",
+            "but",
+            "from",
+            "it",
+            "they",
+            "them",
+            "please",
+            "tell",
+            "about",
+        }
+        terms = []
+        for token in re.findall(r"[a-z0-9]+", query.lower()):
+            if len(token) > 2 and token not in stop_words and token not in terms:
+                terms.append(token)
+        terms = terms[:8]
+
+        start = time.perf_counter()
+
+        logger.info(
+            "Keyword fallback retrieval started | candidate_limit=%s | "
+            "query_length=%s | term_count=%s | scoped=%s",
+            candidate_limit,
+            len(query.strip()),
+            len(terms),
+            bool(self._document_scope),
+        )
+
+        if not terms:
+            logger.info(
+                "Keyword fallback retrieval skipped | reason=no_search_terms | duration=%.3fs",
+                time.perf_counter() - start,
+            )
             return []
 
-        raw_results = result.get("results", [])
-        if not isinstance(raw_results, list):
+        clauses = []
+        for term in terms:
+            safe = term.replace("'", "''")
+            pattern = f"%{safe}%"
+            clauses.append(
+                "(LOWER(pc.CHUNK_TEXT) ILIKE '" + pattern + "' "
+                "OR LOWER(pc.DOCUMENT_NAME) ILIKE '" + pattern + "' "
+                "OR LOWER(pc.CATEGORY) ILIKE '" + pattern + "' "
+                "OR LOWER(COALESCE(pc.SECTION_HEADING, '')) ILIKE '" + pattern + "')"
+            )
+
+        sql_parts = [
+            f"""
+            SELECT
+                pc.CHUNK_ID,
+                pc.DOCUMENT_ID,
+                pc.DOCUMENT_NAME,
+                pc.CATEGORY,
+                pc.CHUNK_INDEX,
+                pc.CHUNK_TEXT,
+                pc.SOURCE_PAGE_INDEX AS PAGE_INDEX,
+                pc.SOURCE_PAGE_NUMBER AS PAGE_NUMBER,
+                pc.SECTION AS SECTION_HEADING,
+                pc.UPLOAD_SOURCE AS SOURCE_TYPE
+            FROM {DOCUMENT_CHUNKS_TABLE} pc
+            INNER JOIN {DOCUMENTS_TABLE} d
+                ON d.DOCUMENT_ID = pc.DOCUMENT_ID
+               AND d.ACTIVE = TRUE
+               AND d.PROCESSING_STATUS = 'INDEXED'
+            WHERE
+            AND (
+                {" OR ".join(clauses)}
+            )
+            """
+        ]
+
+        if self._document_scope:
+            scope_ids = ", ".join(
+                "'" + str(doc_id).replace("'", "''") + "'"
+                for doc_id in sorted(self._document_scope)
+            )
+            sql_parts.append(f"AND pc.DOCUMENT_ID IN ({scope_ids})")
+
+        sql_parts.append(f"ORDER BY pc.CHUNK_INDEX LIMIT {int(candidate_limit)}")
+        sql = " ".join(sql_parts)
+
+        try:
+            rows = self.session.sql(sql).collect()
+        except Exception:
+            logger.exception(
+                "Keyword fallback retrieval failed | term_count=%s | duration=%.3fs",
+                len(terms),
+                time.perf_counter() - start,
+            )
             return []
 
-        candidates: list[RetrievedChunk] = []
-        for item in raw_results:
-            if not isinstance(item, dict):
+        results: list[RetrievedChunk] = []
+        for row in rows:
+            text = str(row["CHUNK_TEXT"] or "").strip()
+            doc_id = str(row["DOCUMENT_ID"] or "").strip()
+            if not text or not doc_id:
                 continue
-
-            chunk_text = str(item.get("CHUNK_TEXT", "") or "").strip()
-            document_id = str(item.get("DOCUMENT_ID", "") or "").strip()
-            if not chunk_text or not document_id:
-                continue
-
             try:
-                chunk_index = int(item.get("CHUNK_INDEX", 0) or 0)
+                chunk_index = int(row["CHUNK_INDEX"] or 0)
             except (TypeError, ValueError):
                 chunk_index = 0
-
-            candidates.append(
+            results.append(
                 RetrievedChunk(
-                    chunk_id=str(item.get("CHUNK_ID", "") or ""),
-                    document_id=document_id,
-                    document_name=str(item.get("DOCUMENT_NAME", "") or ""),
-                    category=str(item.get("CATEGORY", "") or "").strip(),
+                    chunk_id=str(row["CHUNK_ID"] or ""),
+                    document_id=doc_id,
+                    document_name=str(row["DOCUMENT_NAME"] or ""),
+                    category=str(row["CATEGORY"] or "").strip(),
                     chunk_index=chunk_index,
-                    chunk_text=chunk_text,
-                    score=self._score(item),
-                    page_number=self._page_number(item.get("PAGE_NUMBER")),
-                    section_heading=str(item.get("SECTION_HEADING", "") or ""),
-                    source_type=str(item.get("SOURCE_TYPE", "") or ""),
+                    chunk_text=text,
+                    score=0.0,
+                    page_number=self._page_number(row["PAGE_NUMBER"]),
+                    section_heading=str(row["SECTION_HEADING"] or ""),
+                    source_type=str(row["SOURCE_TYPE"] or ""),
                 )
             )
 
-        return candidates
+        logger.info(
+            "Keyword fallback retrieval completed | candidates=%s | "
+            "term_count=%s | duration=%.3fs | scoped=%s",
+            len(results),
+            len(terms),
+            time.perf_counter() - start,
+            bool(self._document_scope),
+        )
+        return results
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievedChunk]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+    ) -> list[RetrievedChunk]:
+        start_time = time.perf_counter()
+
         if not query or not query.strip():
+            logger.warning(
+                "Snowflake retrieval rejected | reason=empty_query | duration=%.3fs",
+                time.perf_counter() - start_time,
+            )
             return []
 
         limit = top_k if top_k is not None else self.top_k
+
         if limit <= 0:
+            logger.warning(
+                "Snowflake retrieval rejected | reason=invalid_top_k | top_k=%s | "
+                "duration=%.3fs",
+                limit,
+                time.perf_counter() - start_time,
+            )
             return []
 
         # IMPORTANT: ask Cortex for enough candidates to let RAGService compare
-        # different documents and different sections.  Do not collapse by
+        # different documents and different sections. Do not collapse by
         # document here.
-        candidate_limit = max(30, limit * 8)
-        candidates = self._search(query, candidate_limit)
-        if not candidates:
-            return []
+        candidate_limit = max(20, limit * 4)
 
-        states = self._document_states({c.document_id for c in candidates})
+        logger.info(
+            "Snowflake retrieval started | top_k=%s | candidate_limit=%s | "
+            "query_length=%s | scoped=%s",
+            limit,
+            candidate_limit,
+            len(query.strip()),
+            bool(self._document_scope),
+        )
 
-        allowed: list[RetrievedChunk] = []
-        for chunk in candidates:
-            state = states.get(chunk.document_id)
+        try:
+            scoped_search_used = bool(self._document_scope)
+            candidates = self._search(
+                query,
+                candidate_limit,
+            )
 
-            # If DOCUMENTS knows this ID, it is an uploaded document and must
-            # be active + indexed.  This is the authoritative lifecycle rule.
-            if state is not None:
-                if not state["active"] or state["status"] != "INDEXED":
-                    continue
-                # The DOCUMENTS table is authoritative for source identity.
-                # Do not trust SOURCE_TYPE returned by old/stale search rows.
-                chunk.source_type = "USER_UPLOAD"
+            # A newly uploaded document is a temporary, one-question scope.
+            # IMPORTANT: only restrict retrieval while that scope is explicitly
+            # set. When there is no pending upload, search the complete knowledge
+            # base, including all previously uploaded documents.
+            if scoped_search_used:
+                if not candidates or not self._has_meaningful_query_overlap(
+                    query, candidates
+                ):
+                    logger.info(
+                        "Upload scope returned weak/no semantic evidence; "
+                        "trying direct lookup within the uploaded document scope."
+                    )
+                    fallback_candidates = self._keyword_search(
+                        query,
+                        candidate_limit,
+                    )
+                    if fallback_candidates:
+                        candidates = fallback_candidates
+
+            # Cortex Search is the primary retriever. If its result set does not
+            # contain meaningful lexical overlap, supplement it from the active
+            # chunk table. This keeps every ACTIVE+INDEXED stored document
+            # searchable without changing lifecycle semantics.
+            if not self._has_meaningful_query_overlap(query, candidates):
+                fallback_candidates = self._keyword_search(
+                    query,
+                    candidate_limit,
+                )
+                if fallback_candidates:
+                    seen = {
+                        (str(c.document_id), str(c.chunk_id), str(c.chunk_index))
+                        for c in candidates
+                    }
+                    for chunk in fallback_candidates:
+                        key = (
+                            str(chunk.document_id),
+                            str(chunk.chunk_id),
+                            str(chunk.chunk_index),
+                        )
+                        if key not in seen:
+                            candidates.append(chunk)
+                            seen.add(key)
+
+            if not candidates:
+                logger.warning(
+                    "Snowflake retrieval completed with no candidates | "
+                    "reason=no_retrieval_results | duration=%.3fs",
+                    time.perf_counter() - start_time,
+                )
+                return []
+
+            states = self._document_states({c.document_id for c in candidates})
+
+            allowed: list[RetrievedChunk] = []
+            filtered_lifecycle = 0
+            uploaded_count = 0
+            built_in_count = 0
+
+            for chunk in candidates:
+                state = states.get(chunk.document_id)
+
+                # If DOCUMENTS knows this ID, it is an uploaded document and must
+                # be active + indexed. This is the authoritative lifecycle rule.
+                if state is not None:
+                    if not state["active"] or state["status"] != "INDEXED":
+                        filtered_lifecycle += 1
+                        continue
+
+                    # The DOCUMENTS table is authoritative for source identity.
+                    # Do not trust SOURCE_TYPE returned by old/stale search rows.
+                    chunk.source_type = "USER_UPLOAD"
+                    uploaded_count += 1
+
+                else:
+                    # Legacy/built-in policy rows are not in DOCUMENTS.
+                    chunk.source_type = "BUILT_IN"
+                    built_in_count += 1
+
+                allowed.append(chunk)
+
+            elapsed = time.perf_counter() - start_time
+
+            if elapsed > 10:
+                logger.warning(
+                    "Slow Snowflake retrieval detected | duration=%.3fs | "
+                    "candidates=%s | allowed=%s | filtered_lifecycle=%s",
+                    elapsed,
+                    len(candidates),
+                    len(allowed),
+                    filtered_lifecycle,
+                )
             else:
-                # Legacy/built-in policy rows are not in DOCUMENTS.
-                chunk.source_type = "BUILT_IN"
+                logger.info(
+                    "Snowflake retrieval completed | duration=%.3fs | "
+                    "candidates=%s | allowed=%s | uploaded=%s | built_in=%s | "
+                    "filtered_lifecycle=%s",
+                    elapsed,
+                    len(candidates),
+                    len(allowed),
+                    uploaded_count,
+                    built_in_count,
+                    filtered_lifecycle,
+                )
 
-            allowed.append(chunk)
+            # Preserve Cortex order. The RAG service will score and filter these
+            # candidates; this method must not pre-select a document or a chunk.
+            return allowed
 
-        # Preserve Cortex order.  The RAG service will score and filter these
-        # candidates; this method must not pre-select a document or a chunk.
-        return allowed
+        except Exception:
+            logger.exception(
+                "Snowflake retrieval failed | duration=%.3fs",
+                time.perf_counter() - start_time,
+            )
+            raise

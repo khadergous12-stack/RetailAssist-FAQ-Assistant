@@ -887,6 +887,8 @@ Document preview:
         self._clear_document_content(document_id)
 
         safe_id = self._sql_escape(document_id)
+        safe_format = self._sql_escape(content_format)
+        values = []
 
         for page in pages:
             page_index = int(
@@ -915,56 +917,52 @@ Document preview:
 
             content_id = f"{document_id}_PAGE_{page_index:05d}"
 
-            # Determine a likely section heading.
             section_heading = ""
-
             for line in content.splitlines():
                 line = line.strip()
-
-                if re.match(
-                    r"^#{1,6}\s+.+",
-                    line,
-                ):
+                if re.match(r"^#{1,6}\s+.+", line):
                     section_heading = re.sub(
                         r"^#{1,6}\s+",
                         "",
                         line,
                     ).strip()
-
                     break
 
-            safe_content_id = self._sql_escape(content_id)
+            values.append(
+                "("
+                f"'{self._sql_escape(content_id)}', "
+                f"'{safe_id}', "
+                f"{page_index}, "
+                f"{page_number}, "
+                f"'{self._sql_escape(content)}', "
+                f"'{safe_format}', "
+                f"'{self._sql_escape(section_heading)}', "
+                "'PARSED', "
+                "NULL"
+                ")"
+            )
 
-            safe_content = self._sql_escape(content)
+        if not values:
+            return
 
-            safe_section = self._sql_escape(section_heading)
-
-            self.session.sql(
-                f"""
-                INSERT INTO {DOCUMENT_CONTENT_TABLE} (
-                    CONTENT_ID,
-                    DOCUMENT_ID,
-                    PAGE_INDEX,
-                    PAGE_NUMBER,
-                    CONTENT,
-                    CONTENT_FORMAT,
-                    SECTION,
-                    PARSE_STATUS,
-                    PARSE_ERROR
-                )
-                VALUES (
-                    '{safe_content_id}',
-                    '{safe_id}',
-                    {page_index},
-                    {page_number},
-                    '{safe_content}',
-                    '{self._sql_escape(content_format)}',
-                    '{safe_section}',
-                    'PARSED',
-                    NULL
-                )
-                """
-            ).collect()
+        values_sql = ",\n".join(values)
+        self.session.sql(
+            f"""
+            INSERT INTO {DOCUMENT_CONTENT_TABLE} (
+                CONTENT_ID,
+                DOCUMENT_ID,
+                PAGE_INDEX,
+                PAGE_NUMBER,
+                CONTENT,
+                CONTENT_FORMAT,
+                SECTION,
+                PARSE_STATUS,
+                PARSE_ERROR
+            )
+            VALUES
+                {values_sql}
+            """
+        ).collect()
 
     # ========================================================
     # FAQ DETECTION
@@ -1114,80 +1112,85 @@ Document preview:
         """
         Build retrieval chunks while preserving page metadata.
 
-        FAQ sections are identified first, then each section is
-        passed through Snowflake Cortex recursive chunking.
+        The document is sent to Snowflake Cortex chunking in a single request
+        instead of making one Cortex request for every FAQ section. Page and
+        section metadata are restored locally after chunking.
         """
 
         format_name = "markdown" if extension == ".md" else "none"
 
-        chunks: list[dict[str, Any]] = []
+        page_rows = []
+        combined_parts = []
 
         for page in pages:
-            page_index = int(
-                page.get(
-                    "page_index",
-                    0,
-                )
-            )
-
-            page_number = int(
-                page.get(
-                    "page_number",
-                    page_index + 1,
-                )
-            )
-
-            content = self._clean_text(
-                page.get(
-                    "content",
-                    "",
-                )
-            )
-
+            page_index = int(page.get("page_index", 0))
+            page_number = int(page.get("page_number", page_index + 1))
+            content = self._clean_text(page.get("content", ""))
             if not content:
                 continue
 
-            sections = self._extract_faq_sections(content)
+            page_rows.append(
+                {
+                    "page_index": page_index,
+                    "page_number": page_number,
+                    "content": content,
+                }
+            )
+            combined_parts.append(content)
 
-            for section in sections:
-                cortex_chunks = self._split_with_cortex(
-                    section,
-                    format_name,
-                )
+        if not combined_parts:
+            return []
 
-                if not cortex_chunks:
-                    cortex_chunks = [section]
+        combined_text = "\n\n".join(combined_parts)
+        cortex_chunks = self._split_with_cortex(combined_text, format_name)
+        if not cortex_chunks:
+            cortex_chunks = [combined_text]
 
-                for chunk in cortex_chunks:
-                    chunk = self._clean_text(chunk)
+        chunks: list[dict[str, Any]] = []
 
-                    if not chunk:
-                        continue
+        def page_metadata_for_chunk(chunk_text: str) -> tuple[int, int, str]:
+            words = set(re.findall(r"[A-Za-z0-9]+", chunk_text.lower()))
+            best = None
+            best_overlap = -1
 
-                    section_heading = ""
+            for row in page_rows:
+                page_words = set(re.findall(r"[A-Za-z0-9]+", row["content"].lower()))
+                overlap = len(words & page_words)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best = row
 
-                    first_line = (
-                        chunk.splitlines()[0].strip() if chunk.splitlines() else ""
-                    )
+            if best is None:
+                best = page_rows[0]
 
-                    if re.match(
-                        r"^#{1,6}\s+.+",
-                        first_line,
-                    ):
-                        section_heading = re.sub(
-                            r"^#{1,6}\s+",
-                            "",
-                            first_line,
-                        ).strip()
+            section_heading = ""
+            first_line = (
+                chunk_text.splitlines()[0].strip() if chunk_text.splitlines() else ""
+            )
+            if re.match(r"^#{1,6}\s+.+", first_line):
+                section_heading = re.sub(
+                    r"^#{1,6}\s+",
+                    "",
+                    first_line,
+                ).strip()
 
-                    chunks.append(
-                        {
-                            "page_index": page_index,
-                            "page_number": page_number,
-                            "chunk_text": chunk,
-                            "section_heading": section_heading,
-                        }
-                    )
+            return best["page_index"], best["page_number"], section_heading
+
+        for chunk in cortex_chunks:
+            chunk = self._clean_text(chunk)
+            if not chunk:
+                continue
+
+            page_index, page_number, section_heading = page_metadata_for_chunk(chunk)
+
+            chunks.append(
+                {
+                    "page_index": page_index,
+                    "page_number": page_number,
+                    "chunk_text": chunk,
+                    "section_heading": section_heading,
+                }
+            )
 
         return chunks
 
@@ -1268,77 +1271,61 @@ Document preview:
 
         self._delete_existing_chunks(document_id)
 
+        if not chunks:
+            return 0
+
         safe_id = self._sql_escape(document_id)
         safe_filename = self._sql_escape(filename)
         safe_category = self._sql_escape(category)
-
-        inserted = 0
+        values = []
 
         for index, chunk in enumerate(chunks):
             chunk_id = f"{document_id}_CHUNK_{index + 1:05d}"
+            chunk_text = str(chunk["chunk_text"])
+            page_index = int(chunk.get("page_index", 0))
+            page_number = int(chunk.get("page_number", page_index + 1))
+            section_heading = chunk.get("section_heading", "")
 
-            safe_chunk_id = self._sql_escape(chunk_id)
-            safe_chunk = self._sql_escape(chunk["chunk_text"])
-
-            page_index = int(
-                chunk.get(
-                    "page_index",
-                    0,
-                )
+            values.append(
+                "("
+                f"'{self._sql_escape(chunk_id)}', "
+                f"'{safe_id}', "
+                f"'{safe_filename}', "
+                f"'{safe_category}', "
+                f"{index}, "
+                f"'{self._sql_escape(chunk_text)}', "
+                f"{len(chunk_text)}, "
+                f"{page_index}, "
+                f"{page_number}, "
+                f"'{self._sql_escape(section_heading)}', "
+                "'USER_UPLOAD', "
+                "TRUE"
+                ")"
             )
 
-            page_number = int(
-                chunk.get(
-                    "page_number",
-                    page_index + 1,
-                )
+        values_sql = ",\n".join(values)
+        self.session.sql(
+            f"""
+            INSERT INTO {DOCUMENT_CHUNKS_TABLE} (
+                CHUNK_ID,
+                DOCUMENT_ID,
+                DOCUMENT_NAME,
+                CATEGORY,
+                CHUNK_INDEX,
+                CHUNK_TEXT,
+                CHUNK_LENGTH,
+                SOURCE_PAGE_INDEX,
+                SOURCE_PAGE_NUMBER,
+                SECTION,
+                UPLOAD_SOURCE,
+                ACTIVE
             )
+            VALUES
+                {values_sql}
+            """
+        ).collect()
 
-            section_heading = self._sql_escape(
-                chunk.get(
-                    "section_heading",
-                    "",
-                )
-            )
-
-            chunk_length = len(chunk["chunk_text"])
-
-            self.session.sql(
-                f"""
-                INSERT INTO {DOCUMENT_CHUNKS_TABLE} (
-                    CHUNK_ID,
-                    DOCUMENT_ID,
-                    DOCUMENT_NAME,
-                    CATEGORY,
-                    CHUNK_INDEX,
-                    CHUNK_TEXT,
-                    CHUNK_LENGTH,
-                    SOURCE_PAGE_INDEX,
-                    SOURCE_PAGE_NUMBER,
-                    SECTION,
-                    UPLOAD_SOURCE,
-                    ACTIVE
-                )
-                VALUES (
-                    '{safe_chunk_id}',
-                    '{safe_id}',
-                    '{safe_filename}',
-                    '{safe_category}',
-                    {index},
-                    '{safe_chunk}',
-                    {chunk_length},
-                    {page_index},
-                    {page_number},
-                    '{section_heading}',
-                    'USER_UPLOAD',
-                    TRUE
-                )
-                """
-            ).collect()
-
-            inserted += 1
-
-        return inserted
+        return len(chunks)
 
     # ========================================================
     # SEARCH REFRESH
@@ -1357,6 +1344,8 @@ Document preview:
         """
 
         service = self._sql_escape(SEARCH_SERVICE)
+        refresh_started = time.perf_counter()
+        LOGGER.info("Cortex Search refresh requested | service=%s", SEARCH_SERVICE)
 
         self.session.sql(
             f"""
@@ -1365,6 +1354,11 @@ Document preview:
             REFRESH
             """
         ).collect()
+        LOGGER.info(
+            "Cortex Search refresh command completed | service=%s | duration=%.3fs",
+            SEARCH_SERVICE,
+            time.perf_counter() - refresh_started,
+        )
 
     # ========================================================
     # DOCUMENT STATUS
@@ -1489,6 +1483,16 @@ Document preview:
             DocumentStore._sanitize_error(exc),
         )
 
+    @staticmethod
+    def _report_progress(callback, percent: int, stage: str, detail: str = "") -> None:
+        """Report upload progress without allowing UI callbacks to break ingestion."""
+        if not callable(callback):
+            return
+        try:
+            callback(int(percent), str(stage), str(detail or ""))
+        except Exception:
+            LOGGER.debug("Upload progress callback failed", exc_info=True)
+
     # ========================================================
     # UPLOAD
     # ========================================================
@@ -1502,10 +1506,18 @@ Document preview:
         description: str | None = None,
         tags: str | None = None,
         uploaded_by: str | None = None,
+        progress_callback=None,
     ) -> str:
 
         started_at = time.time()
         failure_stage = "validation"
+        self._report_progress(progress_callback, 5, "Validating document", filename)
+        LOGGER.info(
+            "Document processing started | document_id=%s | filename=%s | size_bytes=%s",
+            document_id or "pending",
+            filename,
+            len(file_bytes),
+        )
 
         self.validate_file(
             file_bytes,
@@ -1630,6 +1642,14 @@ Document preview:
             # =================================================
 
             failure_stage = "stage_upload"
+            self._report_progress(
+                progress_callback, 15, "Uploading to Snowflake stage", safe_filename
+            )
+            LOGGER.info(
+                "Document stage upload started | document_id=%s | filename=%s",
+                document_id,
+                safe_filename,
+            )
             self.session.file.put_stream(
                 io.BytesIO(file_bytes),
                 staged_file_path,
@@ -1642,6 +1662,15 @@ Document preview:
             # =================================================
 
             failure_stage = "parsing"
+            self._report_progress(
+                progress_callback, 30, "Parsing document", safe_filename
+            )
+            LOGGER.info(
+                "Document parsing started | document_id=%s | filename=%s | file_type=%s",
+                document_id,
+                safe_filename,
+                extension,
+            )
             self._update_document_status(
                 document_id,
                 "PARSING",
@@ -1676,6 +1705,16 @@ Document preview:
                 content_format = "PDF" if extension == ".pdf" else "DOCX"
 
             content = self._clean_text(content)
+            LOGGER.info(
+                "Document parsing completed | document_id=%s | filename=%s | page_count=%s | characters=%s",
+                document_id,
+                safe_filename,
+                page_count,
+                len(content),
+            )
+            self._report_progress(
+                progress_callback, 50, "Parsing completed", f"{page_count} page(s)"
+            )
 
             if not content:
                 raise ValueError(f"{filename} contains no readable text.")
@@ -1701,6 +1740,14 @@ Document preview:
             # =================================================
 
             failure_stage = "content_storage"
+            self._report_progress(
+                progress_callback, 58, "Storing parsed content", safe_filename
+            )
+            LOGGER.info(
+                "Parsed content storage started | document_id=%s | pages=%s",
+                document_id,
+                page_count,
+            )
             self._store_document_pages(
                 document_id=document_id,
                 filename=safe_filename,
@@ -1713,6 +1760,14 @@ Document preview:
             # =================================================
 
             failure_stage = "chunking"
+            self._report_progress(
+                progress_callback, 68, "Creating search chunks", safe_filename
+            )
+            LOGGER.info(
+                "Document chunking started | document_id=%s | filename=%s",
+                document_id,
+                safe_filename,
+            )
             self._update_document_status(
                 document_id,
                 "INDEXING",
@@ -1726,11 +1781,28 @@ Document preview:
             if not chunks:
                 raise ValueError(f"{filename} did not produce searchable chunks.")
 
+            LOGGER.info(
+                "Document chunking completed | document_id=%s | chunk_count=%s",
+                document_id,
+                len(chunks),
+            )
+            self._report_progress(
+                progress_callback, 80, "Chunking completed", f"{len(chunks)} chunk(s)"
+            )
+
             # =================================================
             # 6. UPSERT SOURCE + CHUNKS
             # =================================================
 
             failure_stage = "chunk_storage"
+            self._report_progress(
+                progress_callback, 88, "Storing searchable chunks", safe_filename
+            )
+            LOGGER.info(
+                "Chunk storage started | document_id=%s | chunk_count=%s",
+                document_id,
+                len(chunks),
+            )
             self._upsert_policy_source(
                 document_id=document_id,
                 filename=safe_filename,
@@ -1744,6 +1816,14 @@ Document preview:
                 category=normalized_category,
                 chunks=chunks,
             )
+            LOGGER.info(
+                "Chunk storage completed | document_id=%s | chunk_count=%s",
+                document_id,
+                chunk_count,
+            )
+            self._report_progress(
+                progress_callback, 92, "Chunks stored", f"{chunk_count} chunk(s)"
+            )
 
             # =================================================
             # 7. REFRESH CORTEX SEARCH
@@ -1751,7 +1831,16 @@ Document preview:
 
             try:
                 failure_stage = "search_refresh"
+                self._report_progress(
+                    progress_callback, 96, "Refreshing Cortex Search", safe_filename
+                )
+                LOGGER.info(
+                    "Cortex Search refresh started | document_id=%s", document_id
+                )
                 self.refresh_search()
+                LOGGER.info(
+                    "Cortex Search refresh requested | document_id=%s", document_id
+                )
 
                 final_status = "INDEXED"
 
@@ -1791,6 +1880,37 @@ Document preview:
             )
 
             elapsed = time.time() - started_at
+            if final_status == "INDEXED":
+                self._report_progress(
+                    progress_callback,
+                    100,
+                    "Indexed and ready",
+                    f"{chunk_count} chunk(s)",
+                )
+                LOGGER.info(
+                    "Document processing completed | document_id=%s | filename=%s | status=INDEXED | pages=%s | chunks=%s | duration=%.3fs",
+                    document_id,
+                    safe_filename,
+                    page_count,
+                    chunk_count,
+                    elapsed,
+                )
+            else:
+                self._report_progress(
+                    progress_callback,
+                    98,
+                    "Indexing pending",
+                    "Cortex Search refresh is pending",
+                )
+                LOGGER.info(
+                    "Document processing completed | document_id=%s | filename=%s | status=%s | pages=%s | chunks=%s | duration=%.3fs",
+                    document_id,
+                    safe_filename,
+                    final_status,
+                    page_count,
+                    chunk_count,
+                    elapsed,
+                )
 
             print(
                 f"[RetailAssist] Indexed document "
@@ -1996,6 +2116,8 @@ Document preview:
         self,
         document_id: str,
     ) -> int:
+        retry_started = time.perf_counter()
+        LOGGER.info("Retry requested | document_id=%s", document_id)
 
         document = self.get_document(document_id)
 
@@ -2150,6 +2272,12 @@ Document preview:
                 error_message=refresh_error,
             )
 
+            LOGGER.info(
+                "Retry completed | document_id=%s | chunks=%s | duration=%.3fs",
+                document_id,
+                chunk_count,
+                time.perf_counter() - retry_started,
+            )
             return chunk_count
 
         except Exception as exc:
@@ -2218,12 +2346,24 @@ Document preview:
         Re-indexing is allowed for inactive/deleted documents. The document
         is reactivated and rebuilt from its retained content/staged file.
         """
+        reindex_started = time.perf_counter()
+        LOGGER.info("Re-index requested | document_id=%s", document_id)
         document = self.get_document(document_id)
 
         if not document:
+            LOGGER.warning(
+                "Re-index failed: document not found | document_id=%s", document_id
+            )
             raise ValueError(f"Document not found: {document_id}")
 
-        return self.retry_document(document_id)
+        result = self.retry_document(document_id)
+        LOGGER.info(
+            "Re-index completed | document_id=%s | chunks=%s | duration=%.3fs",
+            document_id,
+            result,
+            time.perf_counter() - reindex_started,
+        )
+        return result
 
     # ========================================================
     # DELETE / DEACTIVATE
@@ -2234,9 +2374,14 @@ Document preview:
         document_id: str,
     ) -> None:
 
+        delete_started = time.perf_counter()
+        LOGGER.info("Delete requested | document_id=%s", document_id)
         document = self.get_document(document_id)
 
         if not document:
+            LOGGER.warning(
+                "Delete failed: document not found | document_id=%s", document_id
+            )
             raise ValueError(f"Document not found: {document_id}")
 
         safe_id = self._sql_escape(document_id)
@@ -2280,6 +2425,12 @@ Document preview:
                 document_id,
                 self._sanitize_error(exc),
             )
+
+        LOGGER.info(
+            "Delete completed | document_id=%s | duration=%.3fs",
+            document_id,
+            time.perf_counter() - delete_started,
+        )
 
     # ========================================================
     # MANUAL REFRESH

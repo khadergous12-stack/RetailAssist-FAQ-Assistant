@@ -1,8 +1,12 @@
+import logging
 import os
+import time
 
 from dotenv import load_dotenv
 from snowflake.snowpark import Session
 
+
+logger = logging.getLogger(__name__)
 # Load variables from .env
 load_dotenv()
 
@@ -14,6 +18,9 @@ def create_snowflake_session() -> Session:
 
     The PAT must never be hard-coded in source code.
     """
+    start_time = time.perf_counter()
+
+    logger.info("Snowflake session creation started.")
 
     required_variables = [
         "SNOWFLAKE_ACCOUNT",
@@ -29,6 +36,10 @@ def create_snowflake_session() -> Session:
     ]
 
     if missing_variables:
+        logger.error(
+            "Snowflake session creation blocked by missing configuration | variables=%s",
+            ", ".join(missing_variables),
+        )
         raise ValueError(
             "Missing Snowflake environment variables: " + ", ".join(missing_variables)
         )
@@ -48,4 +59,27 @@ def create_snowflake_session() -> Session:
     if role:
         connection_parameters["role"] = role
 
-    return Session.builder.configs(connection_parameters).create()
+    try:
+        session = Session.builder.configs(connection_parameters).create()
+
+        elapsed = time.perf_counter() - start_time
+
+        if elapsed >= 10.0:
+            logger.warning(
+                "Slow Snowflake session creation detected | duration=%.3fs",
+                elapsed,
+            )
+        else:
+            logger.info(
+                "Snowflake session created successfully | duration=%.3fs",
+                elapsed,
+            )
+
+        return session
+
+    except Exception:
+        logger.exception(
+            "Snowflake session creation failed | duration=%.3fs",
+            time.perf_counter() - start_time,
+        )
+        raise

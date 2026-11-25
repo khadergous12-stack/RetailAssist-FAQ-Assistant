@@ -1,0 +1,501 @@
+ticket_id,created_date,category,status,priority,resolution_time_hours,customer_rating,channel,region,product_family,refund_amount,is_escalated
+T000001,2025-10-12,Shipping,Closed,Medium,3.7,4,Phone,South,Electronics,0.0,True
+T000002,2026-08-31,Payments,Closed,Medium,27.9,5,Phone,West,Sports,0.0,False
+T000003,2026-04-21,Refunds,In Progress,Medium,,,Web,North,Electronics,298.15,False
+T000004,2026-04-20,Shipping,Closed,Low,17.3,4,Chat,West,Fashion,0.0,False
+T000005,2026-02-08,Refunds,Closed,Medium,36.3,2,Web,East,Fashion,81.4,False
+T000006,2025-10-18,Refunds,Closed,Medium,35.3,4,Web,North,Fashion,257.02,False
+T000007,2025-11-02,Returns,Closed,Medium,7.3,4,Web,East,Beauty,328.66,False
+T000008,2026-06-23,Shipping,Closed,Medium,28.3,3,Chat,South,Beauty,0.0,False
+T000009,2026-03-08,Refunds,Closed,Low,30.5,4,Email,East,Sports,201.66,False
+T000010,2026-07-16,Returns,In Progress,Medium,,,Email,East,Electronics,320.67,False
+T000011,2025-11-13,Payments,Closed,Low,15.7,4,Web,North,Home,0.0,True
+T000012,2025-09-16,Payments,Open,High,,,Email,South,Beauty,0.0,False
+T000013,2026-02-14,Refunds,Closed,High,32.4,4,Email,North,Home,283.76,False
+T000014,2026-05-07,Shipping,Closed,Critical,28.4,3,Web,West,Fashion,0.0,False
+T000015,2026-05-21,Warranty,Open,Critical,,,Email,East,Beauty,0.0,True
+T000016,2026-08-14,Refunds,In Progress,Medium,,,Web,East,Electronics,443.23,False
+T000017,2025-12-14,Payments,In Progress,Medium,,,Phone,South,Home,0.0,True
+T000018,2026-05-13,Shipping,Closed,Critical,31.5,2,Web,South,Home,0.0,True
+T000019,2026-08-27,Shipping,In Progress,Medium,,,Chat,East,Electronics,0.0,False
+T000020,2025-09-22,Returns,In Progress,Medium,,,Web,North,Beauty,0.0,False
+T000021,2026-06-22,Warranty,Open,Medium,,,Web,West,Beauty,0.0,False
+T000022,2026-03-27,Returns,In Progress,High,,,Email,East,Home,283.88,False
+T000023,2025-10-25,Returns,Closed,Low,19.7,4,Chat,West,Sports,49.21,False
+T000024,2025-11-26,Payments,Closed,Medium,29.0,3,Email,North,Sports,0.0,False
+T000025,2026-07-28,Refunds,Closed,Medium,17.8,5,Chat,South,Electronics,100.81,False
+T000026,2025-11-30,Warranty,Closed,High,20.5,4,Web,West,Sports,0.0,False
+T000027,2026-06-17,Shipping,Closed,Low,16.5,4,Phone,East,Home,0.0,False
+T000028,2026-04-29,Shipping,In Progress,Low,,,Web,East,Fashion,0.0,False
+T000029,2026-04-25,Shipping,Closed,Medium,13.5,4,Web,North,Electronics,0.0,True
+T000030,2026-01-25,Shipping,In Progress,Medium,,,Email,North,Sports,0.0,False
+T000031,2025-09-22,Shipping,Closed,Medium,13.3,4,Web,South,Fashion,0.0,False
+T000032,2026-05-15,Shipping,In Progress,Medium,,,Chat,North,Beauty,0.0,False
+T000033,2025-10-14,Shipping,Closed,Low,27.9,5,Chat,North,Home,0.0,False
+T000034,2026-07-10,Refunds,Closed,High,32.3,2,Chat,East,Fashion,0.0,False
+T000035,2025-09-27,Returns,Closed,High,10.8,5,Phone,North,Fashion,310.1,False
+T000036,2026-08-03,Refunds,In Progress,High,,,Chat,East,Electronics,76.52,False
+T000037,2026-08-02,Warranty,Open,Medium,,,Web,South,Sports,0.0,False
+T000038,2026-07-27,Refunds,Closed,Medium,32.2,3,Phone,South,Sports,306.65,False
+T000039,2025-12-19,Shipping,Closed,Critical,29.7,3,Phone,West,Home,0.0,True
+T000040,2025-11-10,Shipping,Open,High,,,Chat,North,Fashion,0.0,True
+T000041,2026-05-28,Payments,Closed,High,27.8,4,Email,East,Sports,0.0,False
+T000042,2026-08-21,Shipping,Closed,High,28.6,3,Chat,West,Electronics,0.0,True
+T000043,2026-04-16,Shipping,Closed,Low,7.1,5,Phone,West,Home,0.0,False
+T000044,2026-04-29,Shipping,Closed,Medium,13.1,4,Chat,East,Sports,0.0,False
+T000045,2026-04-25,Payments,In Progress,Low,,,Phone,West,Sports,0.0,False
+T000046,2026-07-07,Shipping,Closed,High,6.0,4,Chat,East,Electronics,0.0,False
+T000047,2026-03-10,Shipping,Open,High,,,Email,North,Fashion,0.0,False
+T000048,2026-05-21,Returns,Closed,Medium,18.6,5,Chat,West,Electronics,0.0,False
+T000049,2025-09-14,Shipping,Closed,High,25.3,5,Web,North,Beauty,0.0,False
+T000050,2026-03-11,Shipping,Closed,Medium,13.9,5,Chat,North,Fashion,0.0,False
+T000051,2025-11-14,Refunds,Closed,Medium,45.1,2,Chat,North,Fashion,0.0,False
+T000052,2026-04-29,Refunds,Closed,Low,17.0,5,Web,North,Electronics,108.81,False
+T000053,2026-04-05,Warranty,Closed,Medium,34.8,5,Email,East,Home,0.0,False
+T000054,2025-09-25,Returns,In Progress,Low,,,Chat,West,Sports,63.22,False
+T000055,2026-07-03,Refunds,Open,Medium,,,Email,South,Home,15.68,False
+T000056,2026-08-09,Shipping,Closed,Low,10.5,5,Email,East,Electronics,0.0,False
+T000057,2026-05-18,Returns,Closed,Medium,23.4,4,Email,West,Beauty,183.29,False
+T000058,2025-10-05,Shipping,Closed,High,15.9,5,Phone,South,Electronics,0.0,False
+T000059,2026-02-18,Refunds,In Progress,Low,,,Chat,North,Fashion,368.88,False
+T000060,2026-08-23,Payments,Closed,High,31.5,4,Web,South,Home,0.0,False
+T000061,2026-01-29,Shipping,Closed,Low,27.2,5,Chat,North,Home,0.0,False
+T000062,2026-03-23,Payments,Closed,Medium,25.6,4,Web,East,Electronics,0.0,False
+T000063,2025-09-25,Refunds,Closed,Medium,33.1,3,Phone,East,Electronics,205.07,False
+T000064,2026-02-21,Shipping,Closed,High,17.9,5,Chat,West,Beauty,0.0,False
+T000065,2025-10-13,Refunds,Closed,High,29.6,4,Web,North,Beauty,372.72,True
+T000066,2026-02-12,Refunds,Open,High,,,Email,North,Fashion,148.33,False
+T000067,2026-02-27,Returns,Closed,High,14.1,4,Web,North,Fashion,204.2,False
+T000068,2026-08-10,Shipping,Closed,Critical,23.1,3,Web,East,Sports,0.0,True
+T000069,2025-11-13,Payments,Closed,Medium,24.3,3,Web,North,Home,0.0,False
+T000070,2026-03-16,Warranty,Closed,Medium,36.1,3,Email,South,Beauty,0.0,False
+T000071,2026-03-10,Refunds,In Progress,Medium,,,Web,North,Sports,174.62,False
+T000072,2025-09-14,Warranty,Closed,Low,19.8,5,Chat,West,Sports,0.0,False
+T000073,2026-01-12,Returns,Closed,Medium,8.2,5,Web,South,Sports,413.67,False
+T000074,2026-04-20,Returns,Closed,Low,8.4,5,Chat,West,Electronics,435.89,False
+T000075,2026-06-09,Payments,Closed,High,36.4,3,Phone,East,Home,0.0,False
+T000076,2026-03-05,Payments,Closed,Medium,17.2,3,Chat,North,Home,0.0,False
+T000077,2025-12-31,Shipping,In Progress,Medium,,,Web,North,Fashion,0.0,False
+T000078,2026-06-10,Returns,Closed,Medium,8.7,4,Chat,North,Electronics,449.82,False
+T000079,2026-06-22,Shipping,Closed,High,22.3,4,Email,South,Fashion,0.0,False
+T000080,2026-02-24,Shipping,Closed,Medium,14.2,4,Chat,South,Home,0.0,False
+T000081,2025-09-29,Refunds,Open,Medium,,,Email,South,Fashion,155.36,False
+T000082,2026-02-25,Refunds,Open,Critical,,,Phone,North,Fashion,431.01,False
+T000083,2025-10-18,Warranty,Closed,Medium,23.5,5,Chat,South,Home,0.0,False
+T000084,2026-06-16,Shipping,Closed,Medium,12.9,4,Email,North,Electronics,0.0,False
+T000085,2026-07-26,Payments,Open,High,,,Phone,South,Sports,0.0,True
+T000086,2026-07-19,Warranty,Closed,High,21.3,5,Phone,East,Beauty,0.0,False
+T000087,2026-08-17,Returns,In Progress,Medium,,,Web,East,Beauty,41.06,False
+T000088,2026-07-08,Refunds,Closed,Medium,25.5,4,Chat,East,Fashion,389.44,False
+T000089,2026-06-15,Warranty,Closed,High,33.7,4,Email,East,Home,0.0,False
+T000090,2025-10-20,Refunds,Closed,Medium,27.6,4,Email,East,Beauty,196.89,False
+T000091,2025-11-21,Refunds,Open,Medium,,,Phone,East,Home,231.75,False
+T000092,2025-09-12,Shipping,Closed,High,15.8,5,Email,West,Sports,0.0,False
+T000093,2026-01-02,Returns,In Progress,High,,,Chat,East,Electronics,230.28,False
+T000094,2026-08-01,Shipping,In Progress,Medium,,,Web,East,Sports,0.0,False
+T000095,2025-10-26,Shipping,In Progress,Medium,,,Web,South,Fashion,0.0,True
+T000096,2026-03-25,Refunds,Closed,Medium,31.3,3,Email,South,Fashion,46.99,False
+T000097,2026-07-17,Refunds,Closed,High,26.1,3,Email,South,Electronics,360.78,True
+T000098,2025-12-11,Payments,Closed,Medium,12.2,5,Web,North,Electronics,0.0,False
+T000099,2026-05-24,Payments,Closed,Medium,31.7,4,Web,South,Sports,0.0,False
+T000100,2026-02-11,Shipping,Closed,Medium,22.0,4,Chat,West,Sports,0.0,False
+T000101,2026-02-01,Shipping,In Progress,Critical,,,Phone,West,Sports,0.0,False
+T000102,2026-08-11,Payments,Closed,Medium,17.0,5,Email,West,Sports,0.0,False
+T000103,2026-08-19,Shipping,In Progress,High,,,Email,West,Fashion,0.0,False
+T000104,2026-06-23,Payments,Closed,Medium,33.0,3,Chat,North,Sports,0.0,False
+T000105,2026-03-14,Refunds,Closed,Medium,24.5,4,Chat,South,Electronics,319.73,False
+T000106,2026-03-31,Returns,Closed,High,22.7,5,Chat,West,Sports,415.43,False
+T000107,2025-11-10,Shipping,Closed,Medium,27.0,3,Chat,East,Beauty,0.0,True
+T000108,2026-02-08,Payments,In Progress,Low,,,Chat,West,Sports,0.0,False
+T000109,2026-08-15,Shipping,Closed,Medium,15.4,5,Phone,West,Home,0.0,False
+T000110,2026-01-21,Returns,In Progress,Low,,,Phone,South,Fashion,321.63,False
+T000111,2026-06-14,Refunds,Closed,Critical,42.0,2,Phone,East,Electronics,251.29,True
+T000112,2025-11-14,Payments,Closed,Medium,26.6,4,Phone,North,Fashion,0.0,False
+T000113,2026-08-02,Refunds,Closed,Medium,35.7,4,Phone,West,Home,249.28,False
+T000114,2026-07-13,Refunds,Closed,Critical,54.9,2,Chat,South,Electronics,246.0,True
+T000115,2026-04-30,Returns,Closed,Medium,13.5,4,Email,South,Electronics,0.0,False
+T000116,2025-11-20,Warranty,In Progress,Low,,,Web,West,Beauty,0.0,False
+T000117,2026-01-25,Warranty,Closed,Medium,18.1,4,Email,North,Sports,0.0,False
+T000118,2025-09-20,Shipping,Closed,Low,17.3,5,Chat,West,Home,0.0,False
+T000119,2026-05-12,Refunds,Closed,Medium,34.7,4,Chat,East,Electronics,262.06,False
+T000120,2026-07-26,Shipping,Closed,Low,31.6,5,Web,South,Sports,0.0,False
+T000121,2025-11-23,Refunds,Closed,High,33.5,3,Web,East,Home,161.64,True
+T000122,2026-08-12,Returns,In Progress,High,,,Chat,South,Sports,405.21,False
+T000123,2026-08-09,Warranty,Closed,High,33.9,2,Email,South,Home,0.0,True
+T000124,2026-03-16,Shipping,Closed,Medium,2.8,4,Chat,West,Fashion,0.0,True
+T000125,2025-09-06,Returns,Closed,Medium,20.7,4,Phone,East,Home,66.43,False
+T000126,2026-08-27,Payments,Closed,Medium,18.5,5,Phone,North,Fashion,0.0,False
+T000127,2025-12-23,Returns,In Progress,High,,,Chat,South,Beauty,340.26,False
+T000128,2026-04-01,Shipping,In Progress,Low,,,Web,South,Home,0.0,False
+T000129,2026-05-28,Shipping,Closed,High,20.0,4,Web,East,Electronics,0.0,False
+T000130,2026-05-17,Returns,Closed,Medium,18.0,4,Chat,South,Home,241.35,False
+T000131,2025-10-17,Returns,Closed,Low,15.5,5,Web,North,Beauty,195.71,False
+T000132,2026-02-05,Refunds,Closed,Medium,24.8,4,Email,West,Fashion,339.42,False
+T000133,2025-10-03,Refunds,Closed,High,36.1,2,Email,North,Beauty,192.86,True
+T000134,2026-07-28,Warranty,Closed,High,31.4,3,Web,East,Beauty,0.0,False
+T000135,2026-03-13,Returns,Open,Low,,,Web,North,Sports,389.22,False
+T000136,2026-06-03,Refunds,In Progress,Medium,,,Web,South,Home,343.94,False
+T000137,2026-04-06,Returns,Closed,High,27.7,4,Web,South,Home,82.48,False
+T000138,2025-10-28,Returns,In Progress,Low,,,Email,West,Sports,399.43,False
+T000139,2025-12-15,Payments,In Progress,Critical,,,Email,North,Sports,0.0,True
+T000140,2025-09-25,Warranty,Closed,Low,31.2,4,Chat,North,Beauty,0.0,False
+T000141,2025-09-29,Shipping,Closed,High,15.9,5,Chat,East,Home,0.0,False
+T000142,2026-07-04,Warranty,Closed,High,34.6,2,Phone,South,Fashion,0.0,True
+T000143,2026-03-31,Refunds,Closed,Low,44.5,2,Phone,East,Electronics,272.38,False
+T000144,2026-06-12,Shipping,Closed,High,23.6,4,Web,North,Fashion,0.0,False
+T000145,2026-02-11,Shipping,Closed,Critical,40.7,3,Web,West,Home,0.0,False
+T000146,2026-01-02,Shipping,Closed,High,22.6,5,Chat,East,Home,0.0,False
+T000147,2026-04-02,Payments,Closed,High,31.3,2,Chat,West,Home,0.0,False
+T000148,2026-02-17,Returns,In Progress,Medium,,,Email,West,Fashion,330.19,False
+T000149,2026-07-06,Returns,Closed,Low,14.0,5,Email,North,Home,270.6,False
+T000150,2026-02-18,Warranty,Closed,High,27.7,3,Phone,North,Home,0.0,True
+T000151,2026-05-04,Shipping,Closed,Low,32.5,2,Chat,South,Beauty,0.0,True
+T000152,2026-03-14,Shipping,Closed,Medium,26.6,4,Web,East,Fashion,0.0,False
+T000153,2025-10-21,Warranty,Closed,Low,21.4,5,Web,East,Home,0.0,False
+T000154,2026-03-31,Returns,In Progress,Low,,,Email,South,Home,255.69,False
+T000155,2026-04-02,Returns,In Progress,Critical,,,Phone,South,Home,180.23,False
+T000156,2026-05-14,Warranty,In Progress,Medium,,,Phone,East,Beauty,0.0,False
+T000157,2025-11-26,Returns,Closed,Medium,24.8,4,Phone,South,Home,227.42,False
+T000158,2025-10-01,Refunds,Closed,Low,37.6,2,Email,North,Electronics,194.39,False
+T000159,2025-09-05,Warranty,Closed,High,32.8,3,Chat,West,Fashion,0.0,False
+T000160,2026-05-06,Refunds,Closed,High,47.3,3,Web,North,Electronics,193.93,False
+T000161,2026-01-19,Shipping,In Progress,Medium,,,Phone,North,Sports,0.0,True
+T000162,2026-08-12,Shipping,Open,Medium,,,Web,South,Electronics,0.0,False
+T000163,2026-07-15,Returns,Closed,Medium,22.4,4,Phone,East,Fashion,49.37,False
+T000164,2026-04-24,Returns,In Progress,High,,,Chat,South,Fashion,383.82,False
+T000165,2025-10-18,Returns,Closed,Medium,7.1,4,Web,West,Beauty,39.41,False
+T000166,2026-04-11,Returns,Closed,Low,16.3,5,Phone,North,Sports,0.0,False
+T000167,2026-08-21,Shipping,In Progress,Medium,,,Web,East,Electronics,0.0,False
+T000168,2026-06-06,Shipping,Closed,Low,25.4,4,Email,South,Fashion,0.0,False
+T000169,2025-12-16,Payments,Open,High,,,Chat,West,Electronics,0.0,True
+T000170,2026-03-19,Payments,Closed,High,23.3,5,Phone,West,Home,0.0,False
+T000171,2026-02-25,Shipping,Closed,Low,18.7,4,Email,North,Beauty,0.0,False
+T000172,2025-10-09,Shipping,In Progress,Low,,,Phone,West,Fashion,0.0,False
+T000173,2026-01-18,Payments,In Progress,Medium,,,Web,West,Home,0.0,True
+T000174,2026-08-15,Refunds,Closed,Low,19.7,5,Web,North,Sports,122.21,False
+T000175,2026-07-22,Refunds,Closed,Medium,37.9,3,Chat,West,Fashion,54.81,False
+T000176,2025-10-23,Refunds,Closed,High,45.1,3,Chat,North,Home,257.29,False
+T000177,2026-06-11,Returns,Closed,High,16.7,4,Email,East,Beauty,195.01,True
+T000178,2026-01-03,Refunds,Closed,High,40.0,2,Chat,West,Home,145.99,False
+T000179,2026-04-04,Payments,Closed,Medium,18.5,5,Phone,West,Electronics,0.0,False
+T000180,2026-05-12,Warranty,Closed,Low,11.2,5,Chat,West,Electronics,0.0,False
+T000181,2025-09-04,Returns,Open,Medium,,,Web,East,Sports,390.06,False
+T000182,2026-07-31,Shipping,Closed,High,17.1,5,Chat,East,Fashion,0.0,False
+T000183,2025-11-30,Shipping,Closed,High,15.4,4,Web,East,Fashion,0.0,False
+T000184,2026-07-22,Warranty,In Progress,High,,,Web,South,Fashion,0.0,False
+T000185,2025-10-29,Payments,Closed,Medium,11.8,5,Chat,South,Sports,0.0,False
+T000186,2025-12-17,Refunds,Closed,Medium,44.1,3,Web,East,Electronics,361.11,False
+T000187,2026-05-14,Refunds,In Progress,High,,,Chat,East,Home,82.05,False
+T000188,2026-07-04,Warranty,Closed,Medium,19.0,5,Web,West,Sports,0.0,False
+T000189,2026-06-06,Refunds,Closed,Low,14.3,5,Email,East,Sports,412.76,False
+T000190,2025-11-25,Shipping,Closed,Medium,23.1,4,Email,West,Fashion,0.0,False
+T000191,2026-04-09,Returns,In Progress,Low,,,Email,North,Electronics,237.14,False
+T000192,2026-06-25,Returns,In Progress,Low,,,Chat,West,Fashion,350.97,False
+T000193,2025-09-13,Returns,Closed,High,13.0,4,Web,North,Fashion,433.35,False
+T000194,2026-02-07,Warranty,Closed,High,42.4,3,Phone,West,Home,0.0,True
+T000195,2026-08-23,Refunds,Closed,Medium,26.6,3,Web,East,Electronics,367.43,True
+T000196,2026-08-13,Shipping,Closed,High,34.2,4,Chat,South,Sports,0.0,False
+T000197,2026-04-25,Refunds,Closed,Medium,34.9,4,Chat,West,Home,300.93,False
+T000198,2026-07-12,Refunds,In Progress,Critical,,,Chat,West,Sports,16.94,True
+T000199,2026-01-21,Shipping,In Progress,Low,,,Email,North,Sports,0.0,False
+T000200,2026-02-14,Payments,In Progress,Medium,,,Chat,West,Electronics,0.0,False
+T000201,2026-07-25,Returns,Closed,Medium,13.9,5,Phone,West,Sports,64.69,False
+T000202,2026-08-11,Returns,Closed,Medium,10.4,5,Phone,North,Home,118.78,False
+T000203,2026-03-18,Payments,Closed,High,31.0,3,Web,South,Sports,0.0,True
+T000204,2026-08-22,Warranty,Closed,Medium,21.7,4,Chat,South,Beauty,0.0,False
+T000205,2026-07-15,Shipping,Closed,Low,14.9,5,Email,East,Electronics,0.0,False
+T000206,2026-06-15,Warranty,Closed,Medium,20.4,4,Web,West,Beauty,0.0,False
+T000207,2025-10-13,Refunds,Closed,Medium,21.4,5,Email,South,Fashion,112.81,False
+T000208,2026-04-23,Refunds,Open,Low,,,Web,North,Sports,352.17,False
+T000209,2026-03-07,Shipping,Open,High,,,Email,West,Sports,0.0,False
+T000210,2026-08-01,Refunds,Closed,Medium,34.4,4,Chat,East,Electronics,166.63,False
+T000211,2025-12-31,Payments,Closed,Low,21.1,4,Chat,East,Sports,0.0,False
+T000212,2025-11-24,Payments,Open,Medium,,,Chat,South,Home,0.0,False
+T000213,2026-07-03,Warranty,Closed,Low,25.1,4,Chat,East,Fashion,0.0,False
+T000214,2026-01-15,Returns,In Progress,Medium,,,Email,South,Beauty,0.0,False
+T000215,2026-08-02,Warranty,In Progress,High,,,Chat,South,Home,0.0,False
+T000216,2026-02-12,Payments,Open,High,,,Chat,West,Beauty,0.0,True
+T000217,2026-07-21,Shipping,In Progress,High,,,Phone,West,Beauty,0.0,True
+T000218,2026-07-22,Warranty,Open,Medium,,,Email,West,Sports,0.0,False
+T000219,2026-08-22,Warranty,In Progress,Low,,,Phone,West,Beauty,0.0,False
+T000220,2025-09-02,Refunds,Open,High,,,Email,West,Fashion,361.12,False
+T000221,2026-05-12,Shipping,Closed,Medium,4.3,5,Phone,East,Fashion,0.0,False
+T000222,2026-05-07,Warranty,Closed,Medium,20.2,5,Phone,North,Electronics,0.0,False
+T000223,2026-04-24,Refunds,In Progress,High,,,Email,North,Home,15.29,True
+T000224,2025-11-07,Payments,Closed,Medium,25.5,4,Phone,South,Fashion,0.0,False
+T000225,2026-08-07,Refunds,Closed,High,43.5,2,Chat,North,Beauty,330.8,True
+T000226,2025-10-19,Warranty,Closed,Medium,25.2,3,Email,South,Beauty,0.0,True
+T000227,2026-04-16,Refunds,Closed,Medium,41.3,3,Email,North,Fashion,444.85,False
+T000228,2026-03-16,Returns,Closed,High,16.7,4,Email,North,Electronics,398.23,True
+T000229,2025-11-08,Shipping,Closed,Medium,26.9,5,Chat,North,Sports,0.0,False
+T000230,2026-02-27,Warranty,Closed,Low,13.1,4,Chat,South,Beauty,0.0,False
+T000231,2025-10-22,Warranty,Closed,Medium,19.4,4,Chat,North,Sports,0.0,False
+T000232,2026-02-27,Payments,Open,High,,,Web,East,Home,0.0,False
+T000233,2026-07-28,Shipping,Open,Critical,,,Email,South,Sports,0.0,True
+T000234,2026-08-20,Payments,Closed,High,17.0,4,Email,East,Home,0.0,False
+T000235,2026-05-19,Refunds,Open,Critical,,,Chat,West,Fashion,355.95,True
+T000236,2026-01-02,Payments,Closed,Medium,22.4,4,Web,North,Sports,0.0,False
+T000237,2026-02-10,Refunds,Closed,Critical,45.8,2,Chat,West,Sports,252.66,True
+T000238,2025-10-08,Warranty,Closed,Medium,28.7,4,Email,North,Electronics,0.0,False
+T000239,2025-09-21,Shipping,In Progress,High,,,Email,West,Sports,0.0,True
+T000240,2026-08-31,Shipping,In Progress,Medium,,,Web,West,Beauty,0.0,False
+T000241,2026-01-21,Payments,Closed,Low,25.5,5,Email,East,Electronics,0.0,False
+T000242,2025-12-14,Refunds,In Progress,High,,,Chat,East,Beauty,347.0,False
+T000243,2026-04-12,Refunds,Closed,Medium,27.1,4,Chat,North,Home,204.0,False
+T000244,2026-08-03,Shipping,Closed,High,14.8,5,Chat,North,Electronics,0.0,False
+T000245,2026-02-25,Shipping,Closed,Low,13.2,4,Phone,South,Fashion,0.0,False
+T000246,2026-01-16,Shipping,Open,Medium,,,Email,North,Fashion,0.0,False
+T000247,2026-01-18,Refunds,In Progress,Medium,,,Email,East,Sports,230.82,False
+T000248,2025-11-25,Warranty,Closed,High,27.6,4,Phone,South,Fashion,0.0,False
+T000249,2025-10-30,Shipping,Closed,Critical,33.2,2,Chat,North,Electronics,0.0,False
+T000250,2026-03-06,Shipping,Closed,High,24.7,3,Web,South,Home,0.0,True
+T000251,2026-08-02,Shipping,Closed,High,36.5,2,Web,South,Fashion,0.0,False
+T000252,2025-10-10,Payments,Closed,Medium,21.2,5,Phone,North,Sports,0.0,False
+T000253,2026-05-23,Warranty,Closed,Low,20.9,4,Email,West,Electronics,0.0,False
+T000254,2026-01-23,Warranty,Open,High,,,Phone,East,Electronics,0.0,False
+T000255,2026-06-16,Warranty,Closed,Medium,24.2,4,Phone,South,Beauty,0.0,False
+T000256,2025-12-10,Refunds,Closed,Medium,20.3,5,Chat,South,Electronics,0.0,False
+T000257,2026-08-22,Returns,Closed,Low,20.6,4,Email,East,Electronics,178.68,False
+T000258,2026-02-05,Warranty,In Progress,High,,,Email,South,Sports,0.0,False
+T000259,2025-11-12,Refunds,Closed,Low,37.3,3,Phone,North,Electronics,0.0,False
+T000260,2026-03-10,Returns,Closed,High,26.8,4,Web,North,Sports,73.08,False
+T000261,2025-10-09,Shipping,Open,Medium,,,Email,West,Home,0.0,False
+T000262,2026-03-21,Payments,Closed,Medium,21.5,5,Phone,East,Beauty,0.0,False
+T000263,2026-06-27,Refunds,Closed,High,37.6,2,Email,South,Electronics,217.73,True
+T000264,2025-12-16,Returns,Closed,Medium,7.8,5,Web,East,Beauty,67.16,False
+T000265,2026-08-23,Refunds,Closed,Medium,38.8,4,Email,South,Fashion,324.35,False
+T000266,2026-02-01,Payments,Closed,Medium,27.9,3,Phone,South,Electronics,0.0,True
+T000267,2026-06-09,Warranty,Closed,Medium,38.1,2,Chat,North,Beauty,0.0,False
+T000268,2025-10-02,Payments,Closed,Low,28.0,4,Chat,South,Home,0.0,False
+T000269,2026-07-28,Payments,Closed,Medium,24.0,4,Email,East,Electronics,0.0,False
+T000270,2026-04-16,Refunds,Closed,Low,32.5,4,Chat,North,Fashion,424.89,False
+T000271,2026-03-22,Shipping,Closed,High,39.1,3,Web,North,Beauty,0.0,False
+T000272,2025-12-05,Returns,Closed,Medium,13.2,4,Phone,East,Beauty,0.0,False
+T000273,2026-01-30,Refunds,Closed,Low,39.5,3,Web,West,Sports,53.16,False
+T000274,2026-05-28,Payments,Closed,Medium,15.6,5,Chat,North,Beauty,0.0,False
+T000275,2026-05-07,Refunds,Closed,Medium,34.3,3,Phone,East,Beauty,26.34,False
+T000276,2025-09-16,Shipping,Open,Low,,,Phone,North,Beauty,0.0,False
+T000277,2025-11-21,Returns,Closed,Medium,3.3,4,Email,South,Home,370.08,False
+T000278,2025-12-22,Shipping,Closed,High,26.1,4,Web,East,Home,0.0,False
+T000279,2026-07-01,Returns,Open,Medium,,,Phone,East,Sports,319.74,False
+T000280,2025-12-06,Payments,Closed,Critical,41.5,2,Web,East,Home,0.0,True
+T000281,2025-12-22,Shipping,Closed,Medium,16.0,5,Email,West,Electronics,0.0,False
+T000282,2026-02-22,Refunds,Closed,High,33.3,4,Chat,East,Electronics,270.17,False
+T000283,2026-03-06,Returns,Closed,Medium,25.5,4,Email,East,Beauty,161.4,False
+T000284,2026-04-12,Payments,Closed,High,17.6,5,Web,East,Home,0.0,False
+T000285,2026-06-15,Returns,In Progress,Medium,,,Phone,South,Sports,179.6,False
+T000286,2025-09-01,Returns,Closed,Medium,14.4,4,Web,North,Home,415.65,False
+T000287,2026-05-13,Payments,Closed,Medium,25.8,4,Chat,East,Electronics,0.0,False
+T000288,2025-10-16,Refunds,Closed,Medium,34.5,4,Phone,West,Electronics,123.55,True
+T000289,2026-01-10,Returns,In Progress,High,,,Email,North,Electronics,333.67,True
+T000290,2026-03-13,Shipping,Closed,Critical,45.3,2,Phone,West,Electronics,0.0,True
+T000291,2026-08-18,Refunds,Closed,Medium,38.9,2,Chat,South,Beauty,382.91,False
+T000292,2026-02-11,Refunds,In Progress,Medium,,,Phone,North,Electronics,401.25,False
+T000293,2025-10-18,Returns,Closed,Medium,16.5,5,Phone,West,Electronics,299.33,False
+T000294,2026-04-11,Payments,In Progress,High,,,Chat,North,Electronics,0.0,False
+T000295,2026-06-11,Shipping,Closed,Low,6.8,5,Phone,East,Fashion,0.0,False
+T000296,2026-05-10,Refunds,Closed,Low,30.2,4,Chat,North,Fashion,53.12,False
+T000297,2026-07-18,Payments,Open,High,,,Web,South,Electronics,0.0,False
+T000298,2025-10-12,Payments,Closed,Low,22.2,4,Web,North,Fashion,0.0,False
+T000299,2026-01-14,Refunds,Closed,High,39.7,2,Email,West,Home,180.93,False
+T000300,2026-01-13,Refunds,Closed,Medium,33.8,4,Chat,East,Sports,342.22,False
+T000301,2025-10-14,Refunds,Open,Medium,,,Phone,West,Sports,41.53,False
+T000302,2026-08-18,Shipping,Closed,Medium,12.5,5,Web,South,Beauty,0.0,False
+T000303,2026-03-22,Payments,Open,Medium,,,Email,South,Electronics,0.0,False
+T000304,2025-11-25,Returns,Closed,Low,19.3,4,Chat,South,Home,49.09,False
+T000305,2025-12-13,Refunds,In Progress,Medium,,,Chat,East,Fashion,0.0,False
+T000306,2026-03-23,Returns,Closed,Medium,17.2,4,Phone,East,Sports,394.96,False
+T000307,2026-04-03,Shipping,Closed,Medium,21.2,3,Email,West,Home,0.0,False
+T000308,2025-10-22,Returns,Closed,Low,17.6,5,Email,North,Fashion,397.86,False
+T000309,2026-06-20,Refunds,Closed,High,41.9,3,Web,North,Home,77.58,False
+T000310,2026-08-22,Returns,In Progress,High,,,Web,North,Beauty,0.0,False
+T000311,2025-12-31,Returns,In Progress,Low,,,Email,West,Fashion,0.0,False
+T000312,2026-01-22,Refunds,Closed,Medium,45.8,3,Web,North,Home,438.79,False
+T000313,2026-04-02,Shipping,Closed,Medium,6.7,5,Email,South,Beauty,0.0,False
+T000314,2026-05-23,Returns,Closed,Medium,18.1,5,Phone,North,Sports,43.54,False
+T000315,2026-03-26,Warranty,In Progress,Medium,,,Chat,North,Home,0.0,False
+T000316,2026-01-06,Payments,Closed,Low,22.7,5,Email,West,Electronics,0.0,False
+T000317,2026-04-26,Returns,Closed,High,29.5,2,Web,North,Electronics,227.62,True
+T000318,2026-05-01,Shipping,In Progress,Medium,,,Phone,East,Home,0.0,False
+T000319,2026-01-11,Refunds,In Progress,High,,,Email,East,Electronics,85.86,False
+T000320,2026-07-29,Returns,Closed,Medium,1.0,4,Chat,South,Fashion,238.28,False
+T000321,2026-08-16,Refunds,Open,High,,,Email,West,Home,276.5,False
+T000322,2026-02-04,Returns,Closed,High,25.3,4,Phone,West,Beauty,214.66,False
+T000323,2026-02-02,Warranty,In Progress,High,,,Web,North,Electronics,0.0,True
+T000324,2026-03-11,Refunds,Closed,Critical,34.7,4,Phone,East,Electronics,161.28,False
+T000325,2026-02-14,Warranty,In Progress,Medium,,,Phone,East,Fashion,0.0,False
+T000326,2025-09-30,Refunds,Closed,Critical,48.2,3,Web,East,Home,300.1,True
+T000327,2026-01-11,Shipping,In Progress,High,,,Web,West,Beauty,0.0,False
+T000328,2025-12-07,Warranty,Closed,High,29.2,3,Phone,South,Sports,0.0,False
+T000329,2026-03-03,Warranty,Closed,Medium,19.9,4,Phone,South,Sports,0.0,False
+T000330,2026-01-11,Warranty,Closed,High,31.3,3,Chat,East,Electronics,0.0,True
+T000331,2026-04-04,Returns,Closed,Medium,15.9,5,Phone,East,Fashion,216.74,False
+T000332,2026-06-25,Payments,Closed,Medium,22.7,4,Email,West,Home,0.0,False
+T000333,2026-01-31,Warranty,Closed,Critical,22.9,3,Web,North,Home,0.0,True
+T000334,2025-12-12,Refunds,In Progress,Medium,,,Phone,West,Sports,0.0,False
+T000335,2025-12-02,Refunds,Closed,Medium,36.9,3,Email,West,Fashion,91.92,False
+T000336,2025-09-03,Returns,In Progress,High,,,Web,East,Home,88.34,False
+T000337,2026-05-09,Shipping,In Progress,Medium,,,Email,South,Sports,0.0,False
+T000338,2026-05-03,Returns,Closed,Medium,8.2,5,Web,North,Electronics,332.84,False
+T000339,2026-05-30,Shipping,Closed,Low,30.0,3,Chat,North,Electronics,0.0,False
+T000340,2026-02-24,Payments,Closed,High,22.3,4,Phone,South,Electronics,0.0,False
+T000341,2025-09-24,Shipping,Closed,Medium,12.1,5,Phone,East,Beauty,0.0,False
+T000342,2026-08-18,Shipping,Closed,Medium,17.7,4,Chat,East,Beauty,0.0,False
+T000343,2026-03-26,Refunds,Closed,High,35.1,4,Email,South,Home,72.07,False
+T000344,2026-06-29,Returns,Open,Medium,,,Chat,North,Fashion,359.58,False
+T000345,2026-07-17,Warranty,Closed,Low,14.9,5,Email,North,Electronics,0.0,False
+T000346,2026-04-02,Warranty,Closed,Low,21.2,4,Web,West,Electronics,0.0,False
+T000347,2026-08-22,Warranty,Closed,Critical,29.4,3,Email,East,Beauty,0.0,True
+T000348,2026-07-08,Refunds,Closed,Critical,39.6,1,Chat,West,Electronics,283.7,True
+T000349,2026-07-09,Refunds,Closed,Low,27.5,5,Chat,East,Sports,0.0,False
+T000350,2026-03-29,Refunds,In Progress,Medium,,,Phone,South,Electronics,411.01,False
+T000351,2025-09-07,Refunds,Closed,Low,27.0,4,Email,North,Sports,79.88,False
+T000352,2025-10-22,Returns,Closed,High,27.1,5,Phone,South,Beauty,0.0,False
+T000353,2026-04-26,Returns,In Progress,Medium,,,Email,North,Home,385.73,False
+T000354,2025-10-30,Refunds,Closed,Medium,26.3,5,Email,North,Electronics,303.56,False
+T000355,2026-07-16,Payments,Closed,Medium,24.2,5,Phone,North,Fashion,0.0,False
+T000356,2026-04-22,Warranty,Closed,Medium,26.8,4,Phone,West,Beauty,0.0,False
+T000357,2026-07-30,Shipping,In Progress,Medium,,,Chat,North,Home,0.0,False
+T000358,2025-11-21,Returns,Closed,Critical,26.2,4,Email,West,Sports,262.49,False
+T000359,2026-07-11,Shipping,Closed,Medium,10.1,5,Email,South,Beauty,0.0,False
+T000360,2025-09-24,Returns,Closed,Medium,18.0,4,Email,East,Fashion,392.72,False
+T000361,2025-12-24,Shipping,Closed,High,12.6,4,Phone,North,Beauty,0.0,False
+T000362,2026-01-06,Returns,Open,Low,,,Web,East,Beauty,374.5,False
+T000363,2026-07-11,Warranty,In Progress,Critical,,,Email,North,Home,0.0,False
+T000364,2025-11-24,Shipping,Closed,Low,8.1,5,Email,West,Fashion,0.0,False
+T000365,2026-01-21,Warranty,In Progress,High,,,Email,South,Sports,0.0,True
+T000366,2026-04-24,Warranty,Closed,Low,17.6,4,Web,West,Electronics,0.0,False
+T000367,2026-05-13,Refunds,Closed,Critical,49.7,2,Email,North,Beauty,257.35,True
+T000368,2026-07-14,Shipping,Closed,Low,19.1,5,Phone,South,Beauty,0.0,False
+T000369,2025-12-24,Returns,Closed,Medium,21.3,3,Web,East,Sports,275.98,True
+T000370,2025-10-20,Shipping,Closed,High,22.6,4,Chat,North,Fashion,0.0,False
+T000371,2026-06-08,Returns,Closed,Low,5.9,5,Phone,North,Electronics,0.0,False
+T000372,2026-03-29,Returns,In Progress,Medium,,,Email,East,Sports,67.52,False
+T000373,2025-12-07,Payments,Closed,Medium,23.9,4,Phone,North,Beauty,0.0,False
+T000374,2025-11-03,Payments,Closed,Low,27.5,4,Web,West,Sports,0.0,False
+T000375,2026-05-30,Payments,Closed,High,29.6,4,Email,West,Sports,0.0,False
+T000376,2025-11-30,Returns,Closed,Medium,6.7,5,Chat,South,Electronics,276.24,False
+T000377,2026-07-09,Refunds,Closed,Medium,39.1,2,Chat,East,Beauty,0.0,False
+T000378,2026-04-20,Refunds,In Progress,Medium,,,Chat,South,Beauty,400.6,False
+T000379,2026-08-26,Shipping,In Progress,Low,,,Phone,South,Home,0.0,False
+T000380,2026-01-27,Shipping,In Progress,Low,,,Phone,South,Home,0.0,False
+T000381,2025-10-30,Shipping,Closed,Medium,8.2,5,Phone,West,Sports,0.0,False
+T000382,2026-06-01,Warranty,Closed,High,20.6,4,Phone,West,Electronics,0.0,False
+T000383,2026-08-10,Refunds,Closed,Critical,43.4,2,Email,South,Fashion,85.01,True
+T000384,2026-08-20,Refunds,Closed,High,36.8,3,Phone,South,Sports,369.1,False
+T000385,2026-08-12,Shipping,Open,Low,,,Chat,West,Home,0.0,False
+T000386,2026-08-23,Payments,In Progress,High,,,Phone,North,Beauty,0.0,False
+T000387,2026-02-08,Warranty,Closed,Critical,23.7,5,Email,North,Fashion,0.0,False
+T000388,2026-04-15,Returns,Closed,Medium,19.1,5,Chat,East,Sports,277.47,False
+T000389,2025-11-30,Payments,Closed,Low,21.0,3,Email,South,Home,0.0,False
+T000390,2026-01-21,Warranty,Closed,High,29.7,3,Phone,South,Home,0.0,True
+T000391,2026-08-30,Shipping,Closed,Medium,14.4,4,Chat,North,Home,0.0,False
+T000392,2026-07-18,Warranty,Closed,Medium,33.5,3,Phone,West,Sports,0.0,False
+T000393,2026-05-28,Shipping,Closed,High,21.4,4,Chat,South,Sports,0.0,False
+T000394,2026-06-02,Payments,Closed,Medium,28.6,4,Web,North,Fashion,0.0,False
+T000395,2026-03-04,Warranty,Closed,Medium,25.9,5,Phone,South,Sports,0.0,False
+T000396,2026-07-30,Warranty,Closed,High,6.8,4,Email,North,Fashion,0.0,False
+T000397,2026-07-16,Returns,Closed,Low,1.0,5,Chat,North,Fashion,361.35,False
+T000398,2025-09-13,Refunds,Closed,Low,34.1,4,Phone,West,Beauty,405.75,False
+T000399,2025-11-25,Payments,Closed,Medium,24.0,5,Email,North,Home,0.0,False
+T000400,2026-04-06,Returns,Closed,Medium,9.2,4,Email,South,Sports,397.21,False
+T000401,2026-04-11,Refunds,Open,Medium,,,Email,South,Electronics,159.3,False
+T000402,2026-06-13,Returns,Closed,High,22.0,4,Email,South,Fashion,211.24,False
+T000403,2025-10-31,Returns,Closed,Low,7.0,5,Email,North,Sports,383.99,False
+T000404,2026-05-16,Warranty,In Progress,Medium,,,Email,East,Fashion,0.0,False
+T000405,2026-03-15,Shipping,Closed,Critical,26.5,4,Web,North,Beauty,0.0,False
+T000406,2026-06-07,Returns,Closed,High,22.7,5,Phone,South,Fashion,412.66,False
+T000407,2025-09-06,Refunds,Closed,Low,33.2,3,Chat,North,Electronics,274.54,False
+T000408,2026-02-24,Shipping,Closed,High,7.5,4,Chat,West,Sports,0.0,False
+T000409,2025-12-04,Shipping,Open,Medium,,,Chat,East,Home,0.0,False
+T000410,2025-09-28,Refunds,Closed,Medium,40.8,3,Web,North,Fashion,124.05,False
+T000411,2026-03-02,Shipping,Closed,Low,19.0,5,Chat,South,Electronics,0.0,False
+T000412,2026-05-07,Returns,Closed,Medium,14.4,5,Web,East,Sports,316.65,False
+T000413,2026-04-08,Shipping,Closed,Low,21.2,5,Chat,North,Fashion,0.0,False
+T000414,2026-04-12,Warranty,Closed,Medium,25.1,5,Phone,East,Home,0.0,False
+T000415,2026-02-17,Warranty,In Progress,High,,,Web,West,Beauty,0.0,False
+T000416,2026-02-04,Refunds,In Progress,Medium,,,Web,North,Home,50.66,False
+T000417,2025-11-11,Warranty,In Progress,High,,,Chat,East,Electronics,0.0,False
+T000418,2026-07-21,Warranty,Closed,Critical,34.9,2,Email,West,Sports,0.0,False
+T000419,2025-09-19,Shipping,Open,Medium,,,Phone,West,Home,0.0,False
+T000420,2026-01-27,Payments,Closed,High,22.7,4,Chat,West,Sports,0.0,False
+T000421,2026-08-06,Refunds,Closed,Medium,26.0,4,Chat,South,Sports,84.26,False
+T000422,2026-06-17,Returns,In Progress,Medium,,,Chat,West,Fashion,346.24,False
+T000423,2026-08-09,Refunds,Closed,Low,30.6,4,Chat,East,Beauty,212.77,False
+T000424,2026-08-27,Refunds,Closed,Low,48.8,3,Phone,East,Sports,90.62,False
+T000425,2025-10-10,Payments,Closed,High,22.2,4,Phone,West,Home,0.0,False
+T000426,2026-05-08,Refunds,Closed,Medium,26.5,4,Web,North,Sports,0.0,False
+T000427,2025-12-27,Returns,Open,Medium,,,Email,East,Home,83.45,False
+T000428,2026-04-01,Shipping,Closed,Medium,8.7,4,Phone,North,Beauty,0.0,False
+T000429,2026-05-04,Returns,Open,Medium,,,Chat,South,Beauty,33.77,False
+T000430,2025-11-22,Returns,Open,High,,,Chat,North,Sports,87.36,False
+T000431,2026-06-16,Payments,Closed,High,33.5,3,Email,East,Electronics,0.0,False
+T000432,2026-05-05,Shipping,Closed,Medium,21.0,5,Chat,South,Beauty,0.0,False
+T000433,2025-12-03,Returns,Closed,High,10.0,4,Phone,South,Fashion,0.0,False
+T000434,2025-10-06,Refunds,Open,High,,,Chat,West,Beauty,22.2,False
+T000435,2026-05-17,Shipping,In Progress,Medium,,,Web,South,Sports,0.0,False
+T000436,2025-09-20,Refunds,Closed,Medium,39.5,3,Email,North,Beauty,407.36,False
+T000437,2026-08-14,Returns,Closed,Low,11.7,5,Web,West,Fashion,318.47,False
+T000438,2026-03-15,Shipping,Closed,Medium,4.1,5,Phone,North,Beauty,0.0,False
+T000439,2025-10-13,Payments,Closed,Medium,26.3,5,Phone,West,Fashion,0.0,False
+T000440,2026-06-23,Refunds,Closed,High,42.1,4,Email,North,Beauty,314.18,False
+T000441,2026-07-31,Payments,Closed,Medium,18.3,5,Phone,East,Sports,0.0,False
+T000442,2026-03-07,Shipping,In Progress,Medium,,,Phone,West,Home,0.0,False
+T000443,2026-03-09,Returns,Closed,Low,1.5,5,Web,East,Fashion,351.77,False
+T000444,2025-10-31,Shipping,Closed,High,20.9,4,Chat,West,Home,0.0,False
+T000445,2026-05-19,Warranty,Open,High,,,Web,East,Sports,0.0,True
+T000446,2026-03-19,Shipping,Closed,Critical,23.0,3,Email,North,Home,0.0,True
+T000447,2026-01-13,Refunds,Closed,Medium,23.7,4,Chat,East,Electronics,330.16,True
+T000448,2026-01-25,Shipping,Closed,Medium,25.4,4,Email,South,Beauty,0.0,False
+T000449,2026-05-24,Warranty,Closed,High,25.6,4,Phone,South,Electronics,0.0,False
+T000450,2026-07-12,Warranty,Closed,High,31.8,3,Chat,North,Fashion,0.0,False
+T000451,2025-09-01,Shipping,In Progress,High,,,Chat,North,Fashion,0.0,True
+T000452,2026-06-28,Payments,Closed,Low,19.2,4,Chat,North,Electronics,0.0,False
+T000453,2026-06-14,Refunds,Closed,Medium,40.7,2,Phone,East,Fashion,433.93,False
+T000454,2025-11-29,Refunds,Closed,Medium,26.2,4,Web,North,Sports,143.0,True
+T000455,2026-06-03,Warranty,Closed,High,41.9,2,Phone,West,Beauty,0.0,False
+T000456,2026-04-23,Shipping,Closed,High,12.9,4,Web,North,Beauty,0.0,False
+T000457,2025-12-22,Warranty,Closed,High,32.0,4,Chat,East,Beauty,0.0,False
+T000458,2026-01-13,Payments,Closed,Medium,29.1,3,Chat,East,Electronics,0.0,True
+T000459,2026-02-23,Refunds,Open,Low,,,Email,South,Beauty,110.08,False
+T000460,2025-12-07,Payments,Closed,Low,14.0,4,Web,South,Home,0.0,False
+T000461,2026-01-14,Payments,In Progress,Medium,,,Chat,South,Home,0.0,False
+T000462,2025-10-25,Refunds,Closed,Medium,39.8,2,Email,North,Beauty,347.45,False
+T000463,2025-09-22,Warranty,Open,Medium,,,Web,East,Sports,0.0,False
+T000464,2026-06-22,Payments,Closed,High,20.0,5,Phone,West,Home,0.0,False
+T000465,2025-12-23,Shipping,Closed,Medium,34.5,3,Chat,North,Sports,0.0,False
+T000466,2026-05-16,Returns,Closed,High,22.4,4,Phone,West,Home,67.36,False
+T000467,2026-08-12,Shipping,Closed,Low,9.9,4,Chat,West,Sports,0.0,True
+T000468,2025-12-05,Refunds,Closed,Medium,38.3,3,Phone,South,Fashion,281.69,False
+T000469,2026-08-25,Shipping,Closed,Low,10.5,5,Phone,East,Beauty,0.0,False
+T000470,2026-06-22,Warranty,Closed,Critical,36.2,2,Chat,North,Fashion,0.0,True
+T000471,2025-12-10,Payments,Closed,Medium,24.0,4,Chat,South,Beauty,0.0,False
+T000472,2025-11-30,Returns,In Progress,Medium,,,Web,West,Home,0.0,False
+T000473,2026-05-23,Payments,In Progress,Medium,,,Phone,West,Fashion,0.0,False
+T000474,2026-06-18,Refunds,In Progress,Medium,,,Email,West,Electronics,41.12,False
+T000475,2026-05-02,Returns,In Progress,Medium,,,Email,West,Fashion,171.73,False
+T000476,2026-03-30,Refunds,Closed,High,26.1,4,Email,East,Sports,265.51,False
+T000477,2025-11-29,Returns,In Progress,Medium,,,Phone,East,Fashion,227.06,False
+T000478,2025-10-11,Returns,Open,High,,,Web,East,Beauty,78.01,False
+T000479,2026-07-21,Refunds,Closed,Medium,39.3,4,Web,North,Electronics,114.27,False
+T000480,2026-07-28,Refunds,Closed,Low,27.6,5,Web,East,Beauty,423.36,False
+T000481,2026-05-25,Refunds,Open,Medium,,,Web,West,Home,25.05,False
+T000482,2026-08-05,Refunds,In Progress,Medium,,,Phone,North,Home,59.81,False
+T000483,2025-09-14,Refunds,Closed,Critical,58.2,3,Web,North,Electronics,82.54,True
+T000484,2026-01-05,Shipping,Closed,Medium,10.8,4,Phone,West,Home,0.0,False
+T000485,2026-08-06,Returns,Closed,High,29.1,4,Phone,East,Beauty,393.84,True
+T000486,2026-08-24,Refunds,Closed,High,46.1,2,Chat,West,Sports,293.31,True
+T000487,2026-02-25,Returns,Open,Medium,,,Web,South,Electronics,174.12,False
+T000488,2025-11-09,Warranty,Closed,Medium,24.6,4,Phone,East,Beauty,0.0,True
+T000489,2026-05-03,Warranty,Closed,High,19.6,4,Phone,North,Beauty,0.0,False
+T000490,2026-06-08,Returns,Closed,Low,14.8,4,Phone,South,Beauty,0.0,False
+T000491,2026-07-28,Refunds,Closed,Low,25.1,4,Web,West,Home,198.67,False
+T000492,2026-08-22,Payments,Closed,Low,18.8,5,Phone,East,Sports,0.0,False
+T000493,2025-12-03,Refunds,Closed,Low,32.6,3,Chat,East,Electronics,283.71,False
+T000494,2026-07-16,Refunds,In Progress,High,,,Web,South,Fashion,36.59,True
+T000495,2025-12-05,Shipping,In Progress,Medium,,,Email,East,Fashion,0.0,False
+T000496,2025-10-17,Shipping,Closed,Critical,36.3,3,Chat,North,Beauty,0.0,True
+T000497,2026-05-14,Payments,Closed,Low,19.5,5,Phone,West,Electronics,0.0,False
+T000498,2025-09-29,Refunds,Closed,High,31.5,5,Phone,West,Electronics,94.0,False
+T000499,2025-09-07,Refunds,Closed,Medium,37.2,3,Email,South,Beauty,207.69,False
+T000500,2025-10-19,Returns,Closed,Medium,14.9,4,Chat,West,Beauty,150.77,False
